@@ -242,6 +242,18 @@ input,select{font-family:inherit}
 .month-nav .month-sel{max-width:180px;font-weight:600}
 .month-nav .btn.ghost.sm{padding:5px 11px;font-size:15px;line-height:1}
 .month-add-input{width:0;opacity:0;padding:0;margin:0;border:0;pointer-events:none}
+.dwrap{min-height:0}
+.stat-delta{display:inline-block;margin-top:9px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:rgba(0,0,0,0.22);color:rgba(255,255,255,0.85)}
+.stat-delta.up{color:#A7F0B5}
+.stat-delta.down{color:#F6AEC0}
+.stat-delta.neutral,.stat-delta.flat{color:rgba(255,255,255,0.72)}
+.trend-togs{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 14px}
+.trend-tog{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:5px 11px;border-radius:20px;border:1px solid var(--sx-border);background:transparent;color:var(--sx-text-muted);cursor:pointer}
+.trend-tog .dot{width:9px;height:9px;border-radius:50%;opacity:.35}
+.trend-tog.on{color:var(--sx-text);border-color:var(--sx-input-border)}
+.trend-tog.on .dot{opacity:1}
+.lc-series{transition:opacity .15s}
+.trend-tog{cursor:pointer}
 .cloud-form .field,.cloud-cfg .field{max-width:360px}
 .cloud-who{font-size:14px}
 .cloud-status{display:inline-block;margin-left:8px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--sx-sat-100)}
@@ -900,6 +912,7 @@ function renderAccounting(){
   const c = compute();
   const el = document.getElementById("view-accounting");
   const months=sortedMonths(), mi=months.indexOf(state.currentMonth);
+  const {pc:_pc, pL:_pL}=prevMonthComp();
   const navHTML=`<div class="month-nav">
       <span class="month-nav-lbl">Month</span>
       <button class="btn ghost sm" id="monthPrev" ${mi<=0?"disabled":""} aria-label="Previous month" title="Previous month">&#8249;</button>
@@ -911,9 +924,9 @@ function renderAccounting(){
     </div>`;
   el.innerHTML = navHTML + `
     <div class="stats">
-      <div class="stat blue"><div class="label">Monthly Net</div><div class="val" id="s-net">${money(c.netIncome)}</div><div class="meta">Gross <span id="s-gross">${money(c.monthlyGross)}</span></div></div>
-      <div class="stat dark"><div class="label">Total Deductions</div><div class="val" id="s-deductions">${money(c.totalDeductions)}</div><div class="meta">${pct(c.monthlyGross?c.totalDeductions/c.monthlyGross:0)} of gross</div></div>
-      <div class="stat green"><div class="label">Income Retained</div><div class="val" id="s-retained">${pct(c.incomeRetained)}</div><div class="meta">after deductions</div></div>
+      <div class="stat blue"><div class="label">Monthly Net</div><div class="val" id="s-net">${money(c.netIncome)}</div><div class="meta">Gross <span id="s-gross">${money(c.monthlyGross)}</span></div><div class="dwrap" id="d-net">${trendDeltaChip(c.netIncome, _pc?_pc.net:null,"money","goodup",_pL)}</div></div>
+      <div class="stat dark"><div class="label">Total Deductions</div><div class="val" id="s-deductions">${money(c.totalDeductions)}</div><div class="meta">${pct(c.monthlyGross?c.totalDeductions/c.monthlyGross:0)} of gross</div><div class="dwrap" id="d-ded">${trendDeltaChip(c.totalDeductions, _pc?_pc.deductions:null,"money","neutral",_pL)}</div></div>
+      <div class="stat green"><div class="label">Income Retained</div><div class="val" id="s-retained">${pct(c.incomeRetained)}</div><div class="meta">after deductions</div><div class="dwrap" id="d-ret">${trendDeltaChip(c.incomeRetained, _pc?_pc.retained:null,"pp","goodup",_pL)}</div></div>
     </div>
 
     <div class="card">
@@ -982,7 +995,8 @@ function renderAccounting(){
         <div class="line-total"><span>Total Savings</span><span class="v" id="t-savings">${money(c.totalSavings)}</span></div>
       </div>
     </div>
-    ${allocationCardHTML()}`;
+    ${allocationCardHTML()}
+    ${trendsCardHTML()}`;
   // responsive single column
   const cols = el.querySelector(".cols");
   if(window.innerWidth<760) cols.style.gridTemplateColumns="1fr";
@@ -1019,7 +1033,70 @@ function recomputeAccounting(){
   });
   renderDonuts();
   patchAllocationSummary();/* ALLOC live update */
+  patchTrends();/* TRENDS live update */
 }
+
+/* ==================== TRENDS — monthly history (removable) ==================== */
+function monthShort(ym){ const p=(ym||"").split("-"); return (MONTHS[(+p[1]||1)-1]||"").slice(0,3)+" "+(p[0]||"").slice(2); }
+function computeMonth(ym){
+  const m=state.months&&state.months[ym]; if(!m) return null;
+  const gross=(m.income||[]).reduce((s,i)=>s+num(i.annual),0)/12;
+  const expenses=(m.expenses||[]).reduce((s,e)=>s+itemAmount(e),0);
+  const deductions=(m.deductions||[]).reduce((s,d)=>s+num(d.amount),0);
+  const savings=(m.savings||[]).reduce((s,v)=>s+itemAmount(v),0);
+  const net=gross-deductions, budget=net-(expenses+savings);
+  return {gross,deductions,net,expenses,savings,budget,retained:gross?net/gross:0,savingsRate:net?savings/net:0};
+}
+// ▲/▼ chip comparing the current month to the previous one
+function trendDeltaChip(cur, prev, kind, tone, prevLabel){
+  if(prev==null||prevLabel==="") return "";
+  const d=cur-prev, eps=kind==="pp"?0.00005:0.005;
+  if(Math.abs(d)<eps) return `<span class="stat-delta flat">— no change vs ${prevLabel}</span>`;
+  const up=d>0, arrow=up?"▲":"▼";
+  const cls = tone==="neutral" ? "neutral" : (up?"up":"down");
+  const hide=state.config.hideFigures;
+  const txt = kind==="pp" ? (arrow+" "+(Math.abs(d)*100).toFixed(1)+"pp") : (arrow+(hide?"":" "+money(Math.abs(d))));
+  return `<span class="stat-delta ${cls}">${txt} vs ${prevLabel}</span>`;
+}
+function prevMonthComp(){
+  const ms=sortedMonths(), i=ms.indexOf(state.currentMonth);
+  if(i<=0) return {pc:null, pL:""};
+  return {pc:computeMonth(ms[i-1]), pL:monthShort(ms[i-1])};
+}
+const TREND_METRICS=[
+  {key:"net",name:"Net income",color:"#16A085",get:c=>c.net},
+  {key:"gross",name:"Gross",color:"#1383F4",get:c=>c.gross},
+  {key:"deductions",name:"Deductions",color:"#5C7495",get:c=>c.deductions},
+  {key:"expenses",name:"Expenses",color:"#E0567A",get:c=>c.expenses},
+  {key:"savings",name:"Savings",color:"#078A04",get:c=>c.savings},
+  {key:"budget",name:"Spending",color:"#F29E1A",get:c=>c.budget},
+];
+function trendVis(){ if(!state.config.trendLines||typeof state.config.trendLines!=="object") state.config.trendLines={net:true,gross:false,deductions:false,expenses:true,savings:true,budget:true}; return state.config.trendLines; }
+function trendsCardHTML(){
+  const collapsed=!!state.config.trendsCollapsed;
+  const chev=`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform .15s;transform:rotate(${collapsed?-90:0}deg)"><path d="M6 9l6 6 6-6"/></svg>`;
+  const head=`<div class="card-h" data-trendstoggle style="cursor:pointer;user-select:none"><h3 class="section-title" style="margin:0">Trends</h3><button class="btn ghost sm" data-trendstoggle aria-expanded="${!collapsed}">${collapsed?"Show":"Hide"} ${chev}</button></div>`;
+  if(collapsed) return `<div class="card" id="trends-card">${head}</div>`;
+  const months=sortedMonths();
+  if(months.length<2) return `<div class="card" id="trends-card">${head}<p class="hint" style="margin:6px 0 0">Add another month (from the picker at the top) to start seeing your figures trend over time.</p></div>`;
+  const vis=trendVis(), comps=months.map(computeMonth), hide=state.config.hideFigures;
+  const series=TREND_METRICS.filter(mt=>vis[mt.key]).map(mt=>({ points:months.map((m,i)=>{ const cc=comps[i], y=mt.get(cc); return {x:i, y, label:monthLabel(m), tip: hide ? pct(cc.gross? y/cc.gross : 0) : money(y)}; }), color:mt.color, name:mt.name, tag:mt.key }));
+  const toggles=TREND_METRICS.map(mt=>`<button class="trend-tog ${vis[mt.key]?"on":""}" data-trendtog="${mt.key}"><span class="dot" style="background:${mt.color}"></span>${mt.name}</button>`).join("");
+  const chart= series.length ? lineChartSVG(series,{xLabel:i=>monthShort(months[i]||""), yFmt: hide?(v=>""):money, yAxis: hide?(v=>""):fmtAxis, allX:true}) : `<p class="hint" style="margin:6px 0 0">Turn on a line below to draw the chart.</p>`;
+  return `<div class="card" id="trends-card">${head}
+    <div class="trend-togs">${toggles}</div>
+    ${chart}
+  </div>`;
+}
+function refreshTrends(){ const c=document.getElementById("trends-card"); if(c) c.outerHTML=trendsCardHTML(); }
+function patchTrends(){
+  const {pc,pL}=prevMonthComp(), c=compute(), set=(id,html)=>{const e=document.getElementById(id); if(e) e.innerHTML=html;};
+  set("d-net", trendDeltaChip(c.netIncome, pc?pc.net:null, "money","goodup", pL));
+  set("d-ded", trendDeltaChip(c.totalDeductions, pc?pc.deductions:null, "money","neutral", pL));
+  set("d-ret", trendDeltaChip(c.incomeRetained, pc?pc.retained:null, "pp","goodup", pL));
+  if(!state.config.trendsCollapsed && document.getElementById("trends-card")) refreshTrends();
+}
+/* ==================== END TRENDS ==================== */
 
 /* ==================== BANK ALLOCATION (removable) ==================== */
 // leaf allocatable units: sub-items where they exist, else the item itself (Expenses + Savings)
@@ -1212,7 +1289,7 @@ function accountingSankeySVG(){
   }
   const cols=[col0,col1,col2,col3];
   const hide=state.config.hideFigures;
-  const vstr=v=> hide ? pct(G?v/G:0) : money(v);
+  const vstr=v=> hide ? pct(G?v/G:0) : (money(v)+"  ·  "+pct(G?v/G:0));
   const flows=[];
   const Fl=(s,t,v)=>{ if(s&&t&&v>0.5) flows.push({src:s,tgt:t,value:v}); };
   Fl(gross,ded,D); Fl(gross,net,N);
@@ -1318,7 +1395,7 @@ function salaryChart(rows){
     ${lineChartSVG([
       {points:nominal, color:"#1383F4", fill:true, name:"Nominal"},
       {points:real, color:"#F29E1A", name:"Real (today's money)"}
-    ], {xLabel:v=>v, yFmt:money})}
+    ], {xLabel:v=>v, yFmt:money, yAxis:fmtAxis})}
     <div class="chart-legend">
       <span><span class="dot" style="background:#1383F4"></span>Nominal salary</span>
       <span><span class="dot" style="background:#F29E1A"></span>Real salary (in ${latestYear} money)</span>
@@ -1383,7 +1460,7 @@ function renderLoan(){
       ${proj.ok
         ? `<div class="loan-proj">On track to clear around <strong>${projDate}</strong> — roughly ${Math.max(1,Math.round(proj.months))} month${Math.round(proj.months)===1?"":"s"} away at ≈${money(proj.monthlyRate)}/month, based on the last ${proj.windowMonths} month${proj.windowMonths===1?"":"s"} of repayments.</div>`
         : (proj.cleared?`<div class="loan-proj">🎉 ${proj.reason}</div>`:`<div class="loan-proj muted">${proj.reason}</div>`)}
-      ${lineChartSVG(chartSeries, {xLabel:t=>new Date(t).getFullYear(), yFmt:money, dateAxis:true})}
+      ${lineChartSVG(chartSeries, {xLabel:t=>new Date(t).getFullYear(), yFmt:money, yAxis:fmtAxis, dateAxis:true})}
       <div class="chart-legend"><span><span class="dot" style="background:#078A04"></span>Outstanding balance</span>${proj.ok?`<span><span class="dot" style="background:#9FB0C7"></span>Projected payoff</span>`:""}</div>
     </div>
     <div class="card">
@@ -1467,7 +1544,7 @@ function renderMortgage(){
       ${proj.ok
         ? `<div class="loan-proj">On track to clear around <strong>${projDate}</strong> — roughly ${Math.max(1,Math.round(proj.months))} month${Math.round(proj.months)===1?"":"s"} away at ≈${money(proj.monthlyRate)}/month, based on the last ${proj.windowMonths} month${proj.windowMonths===1?"":"s"} of reductions.</div>`
         : (proj.cleared?`<div class="loan-proj">🎉 ${proj.reason}</div>`:`<div class="loan-proj muted">${proj.reason}</div>`)}
-      ${lineChartSVG(chartSeries, {xLabel:t=>new Date(t).getFullYear(), yFmt:money, dateAxis:true})}
+      ${lineChartSVG(chartSeries, {xLabel:t=>new Date(t).getFullYear(), yFmt:money, yAxis:fmtAxis, dateAxis:true})}
       <div class="chart-legend"><span><span class="dot" style="background:#078A04"></span>Outstanding balance</span>${proj.ok?`<span><span class="dot" style="background:#9FB0C7"></span>Projected payoff</span>`:""}</div>
     </div>
     <div class="card">
@@ -1533,6 +1610,17 @@ function renderConfig(){
 }
 
 /* ============================================================ SVG line chart (multi-series) */
+function niceNum(range, round){
+  if(!(range>0)) return 1;
+  const exp=Math.floor(Math.log10(range)), frac=range/Math.pow(10,exp);
+  let nf; if(round) nf = frac<1.5?1:frac<3?2:frac<7?5:10; else nf = frac<=1?1:frac<=2?2:frac<=5?5:10;
+  return nf*Math.pow(10,exp);
+}
+function fmtAxis(v){
+  const cur=(state.config&&state.config.currency)||"£", a=Math.abs(v);
+  if(a>=1000) return cur+(v/1000).toLocaleString("en-GB",{maximumFractionDigits:1})+"k";
+  return cur+Math.round(v).toLocaleString("en-GB");
+}
 function lineChartSVG(series, opts){
   opts = opts||{};
   // accept a single points array for back-compat
@@ -1545,17 +1633,24 @@ function lineChartSVG(series, opts){
   let minY=Math.min(...ys), maxY=Math.max(...ys);
   if(minX===maxX){minX-=1;maxX+=1;}
   if(opts.dateAxis){ minX=new Date(new Date(minX).getFullYear()+"-01-01T00:00:00").getTime(); }
-  const yPad=(maxY-minY)*0.1||1; minY=Math.max(0,minY-yPad); maxY=maxY+yPad;
+  // nice y-axis → rounded tick values (e.g. £0 / £2k / £4k …)
+  if(minY===maxY){ maxY=minY+1; }
+  if(minY>0) minY=0;
+  const ystep=niceNum(niceNum(maxY-minY,false)/5,true)||1;
+  minY=Math.floor(minY/ystep)*ystep;
+  maxY=Math.ceil(maxY/ystep)*ystep;
   const sx=x=>pad.l+(x-minX)/(maxX-minX)*(W-pad.l-pad.r);
   const sy=y=>H-pad.b-(y-minY)/(maxY-minY)*(H-pad.t-pad.b);
   const multi = series.length>1;
+  const axisFmt = opts.yAxis || opts.yFmt || (v=>Math.round(v));
   // gridlines / y ticks
-  const ticks=5; let grid="",yl="";
-  for(let i=0;i<=ticks;i++){
-    const v=minY+(maxY-minY)*i/ticks, y=sy(v);
+  let grid="",yl="";
+  for(let v=minY; v<=maxY+ystep*0.001; v+=ystep){
+    const y=sy(v);
     grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="var(--sx-border)" stroke-width="1"/>`;
-    yl+=`<text x="${pad.l-10}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--sx-text-muted)">${opts.yFmt?opts.yFmt(v):Math.round(v)}</text>`;
+    yl+=`<text x="${pad.l-10}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--sx-text-muted)">${axisFmt(v)}</text>`;
   }
+  grid+=`<line x1="${pad.l}" y1="${H-pad.b}" x2="${W-pad.r}" y2="${H-pad.b}" stroke="var(--sx-text-muted)" stroke-width="1" opacity="0.6"/>`;
   // x labels
   let xl="";
   if(opts.dateAxis){
@@ -1572,33 +1667,36 @@ function lineChartSVG(series, opts){
     if(!xl) xl=mk(minX,String(opts.xLabel?opts.xLabel(minX):y0))+mk(maxX,String(opts.xLabel?opts.xLabel(maxX):y1));
   } else {
     const base=series.reduce((a,s)=>s.points.length>a.points.length?s:a,series[0]);
-    const n=base.points.length, step=Math.max(1,Math.ceil(n/6));
+    const n=base.points.length, step=(opts.allX && n<=14)?1:Math.max(1,Math.ceil(n/6));
     for(let i=0;i<n;i+=step){
-      const p=base.points[i];
-      xl+=`<text x="${sx(p.x)}" y="${H-pad.b+22}" text-anchor="middle" font-size="11" fill="var(--sx-text-muted)">${opts.xLabel?opts.xLabel(p.x):p.x}</text>`;
+      const p=base.points[i], x=sx(p.x);
+      xl+=`<line x1="${x}" y1="${H-pad.b}" x2="${x}" y2="${H-pad.b+5}" stroke="var(--sx-text-muted)" stroke-width="1" opacity="0.6"/>`;
+      xl+=`<text x="${x}" y="${H-pad.b+22}" text-anchor="middle" font-size="11" fill="var(--sx-text-muted)">${opts.xLabel?opts.xLabel(p.x):p.x}</text>`;
     }
   }
-  let defs="", paths="", dots="";
+  let defs="", groups="";
   series.forEach((s,si)=>{
     const color=s.color||"#1383F4", pts=s.points; if(!pts.length) return;
     const line=pts.map((p,i)=>`${i?"L":"M"}${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(" ");
+    let g="";
     if(s.fill){
       const gid="g"+si+Math.random().toString(36).slice(2,6);
       defs+=`<linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity="0.22"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient>`;
       const area=`M${sx(pts[0].x).toFixed(1)},${sy(minY).toFixed(1)} `+pts.map(p=>`L${sx(p.x).toFixed(1)},${sy(p.y).toFixed(1)}`).join(" ")+` L${sx(pts[pts.length-1].x).toFixed(1)},${sy(minY).toFixed(1)} Z`;
-      paths+=`<path d="${area}" fill="url(#${gid})"/>`;
+      g+=`<path d="${area}" fill="url(#${gid})"/>`;
     }
-    paths+=`<path d="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" ${s.dash?'stroke-dasharray="6 5"':''}/>`;
-    dots+=pts.map(p=>{
+    g+=`<path class="lc-line" d="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" ${s.dash?'stroke-dasharray="6 5"':''}/>`;
+    g+=pts.map(p=>{
       const cx=sx(p.x).toFixed(1), cy=sy(p.y).toFixed(1);
-      const xlab=escapeHtml(String(opts.xLabel?opts.xLabel(p.x):p.x));
-      const yval=escapeHtml(String(opts.yFmt?opts.yFmt(p.y):p.y));
+      const xlab=escapeHtml(String(p.label!=null?p.label:(opts.xLabel?opts.xLabel(p.x):p.x)));
+      const yval=escapeHtml(String(p.tip!=null?p.tip:(opts.yFmt?opts.yFmt(p.y):p.y)));
       const tag=multi&&s.name?escapeHtml(s.name)+" · ":"";
       return `<circle class="pt" cx="${cx}" cy="${cy}" r="3.5" fill="${color}"/>`
         +`<circle class="pthit" cx="${cx}" cy="${cy}" r="11" fill="transparent" data-pt data-x="${tag}${xlab}" data-y="${yval}"><title>${tag}${xlab}: ${yval}</title></circle>`;
     }).join("");
+    groups+=`<g class="lc-series" data-series="${escapeHtml(s.tag||'')}">${g}</g>`;
   });
-  return `<svg viewBox="0 0 ${W} ${H}" role="img"><defs>${defs}</defs>${grid}${yl}${xl}${paths}${dots}</svg>`;
+  return `<svg viewBox="0 0 ${W} ${H}" role="img"><defs>${defs}</defs>${grid}${yl}${xl}${groups}</svg>`;
 }
 
 /* ============================================================ donut chart */
@@ -2027,6 +2125,21 @@ document.querySelector(".content").addEventListener("mouseover", e=>{
   }
 });
 
+/* TRENDS legend hover-to-highlight */
+let trendHi=false;
+document.querySelector(".content").addEventListener("mouseover", e=>{
+  const card=document.getElementById("trends-card"); const svg=card&&card.querySelector("svg"); if(!svg) return;
+  const tt=e.target.closest && e.target.closest("[data-trendtog]");
+  if(tt && card.contains(tt)){
+    const key=tt.dataset.trendtog;
+    if(svg.querySelector('.lc-series[data-series="'+key+'"]')){
+      svg.querySelectorAll(".lc-series").forEach(g=> g.style.opacity = (g.dataset.series===key)?"1":"0.1");
+      trendHi=true; return;
+    }
+  }
+  if(trendHi){ svg.querySelectorAll(".lc-series").forEach(g=> g.style.opacity=""); trendHi=false; }
+});
+
 let recalcTimer=null;
 function scheduleRecalc(view){
   clearTimeout(recalcTimer);
@@ -2096,6 +2209,8 @@ document.querySelector(".content").addEventListener("click", e=>{
   if(e.target.id==="monthNext"){ const ms=sortedMonths(),i=ms.indexOf(state.currentMonth); if(i<ms.length-1) switchMonth(ms[i+1]); return; }/* MONTH */
   if(e.target.id==="monthAdd"){ addMonth(); return; }/* MONTH */
   if(e.target.id==="monthDel"){ delMonth(); return; }/* MONTH */
+  if(e.target.closest("[data-trendstoggle]")){ state.config.trendsCollapsed=!state.config.trendsCollapsed; save(); refreshTrends(); return; }/* TRENDS */
+  { const tt=e.target.closest("[data-trendtog]"); if(tt){ const v=trendVis(); v[tt.dataset.trendtog]=!v[tt.dataset.trendtog]; save(); refreshTrends(); return; } }/* TRENDS */
   const alloctoggle=e.target.closest("[data-alloctoggle]");/* ALLOC */
   if(alloctoggle){ state.config.allocCollapsed = !state.config.allocCollapsed; save(); refreshAllocation(); return; }
   const bankadd=e.target.closest("[data-bankadd]");/* ALLOC */
