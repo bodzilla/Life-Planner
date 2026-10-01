@@ -254,6 +254,13 @@ input,select{font-family:inherit}
 .trend-tog.on .dot{opacity:1}
 .lc-series{transition:opacity .15s}
 .trend-tog{cursor:pointer}
+.trend-views{display:inline-flex;gap:2px;padding:3px;background:var(--sx-sat-50);border:1px solid var(--sx-border);border-radius:10px;margin:2px 0 14px}
+[data-theme="dark"] .trend-views{background:rgba(255,255,255,0.04)}
+.trend-view{border:0;background:transparent;color:var(--sx-text-muted);font-size:12px;font-weight:600;padding:5px 14px;border-radius:7px;cursor:pointer}
+.trend-view.on{background:var(--sx-surface);color:var(--sx-text);box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.trend-legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:10px}
+.trend-legi{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--sx-text-muted)}
+.trend-legi .dot{width:9px;height:9px;border-radius:50%}
 .cloud-form .field,.cloud-cfg .field{max-width:360px}
 .cloud-who{font-size:14px}
 .cloud-status{display:inline-block;margin-left:8px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--sx-sat-100)}
@@ -1072,6 +1079,51 @@ const TREND_METRICS=[
   {key:"budget",name:"Spending",color:"#F29E1A",get:c=>c.budget},
 ];
 function trendVis(){ if(!state.config.trendLines||typeof state.config.trendLines!=="object") state.config.trendLines={net:true,gross:false,deductions:false,expenses:true,savings:true,budget:true}; return state.config.trendLines; }
+// stacked area: net income split into expenses / savings / spending across months
+function stackedAreaSVG(months, comps){
+  const W=820,H=300,pad={l:70,r:24,t:16,b:40}, n=months.length;
+  const bands=[{name:"Expenses",color:"#E0567A",get:c=>Math.max(0,c.expenses)},{name:"Savings",color:"#078A04",get:c=>Math.max(0,c.savings)},{name:"Spending",color:"#F29E1A",get:c=>Math.max(0,c.budget)}];
+  const totals=comps.map(c=>bands.reduce((s,b)=>s+b.get(c),0));
+  let minY=0, maxY=Math.max(1,...totals);
+  const ystep=niceNum(niceNum(maxY,false)/5,true)||1; maxY=Math.ceil(maxY/ystep)*ystep;
+  const sx=i=> pad.l + (n<=1?0.5:i/(n-1))*(W-pad.l-pad.r);
+  const sy=y=> H-pad.b-(y-minY)/(maxY-minY)*(H-pad.t-pad.b);
+  let grid="",yl="";
+  for(let v=minY; v<=maxY+ystep*0.001; v+=ystep){ const y=sy(v); grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="var(--sx-border)" stroke-width="1"/>`; yl+=`<text x="${pad.l-10}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--sx-text-muted)">${fmtAxis(v)}</text>`; }
+  grid+=`<line x1="${pad.l}" y1="${H-pad.b}" x2="${W-pad.r}" y2="${H-pad.b}" stroke="var(--sx-text-muted)" stroke-width="1" opacity="0.6"/>`;
+  let xl="", step=(n<=14)?1:Math.ceil(n/6);
+  for(let i=0;i<n;i+=step){ const x=sx(i); xl+=`<line x1="${x}" y1="${H-pad.b}" x2="${x}" y2="${H-pad.b+5}" stroke="var(--sx-text-muted)" stroke-width="1" opacity="0.6"/><text x="${x}" y="${H-pad.b+22}" text-anchor="middle" font-size="11" fill="var(--sx-text-muted)">${monthShort(months[i])}</text>`; }
+  let lower=new Array(n).fill(0), areas="", dots="";
+  bands.forEach(b=>{
+    const upper=comps.map((c,i)=>lower[i]+b.get(c));
+    let d="M"+sx(0).toFixed(1)+","+sy(upper[0]).toFixed(1);
+    for(let i=1;i<n;i++) d+=" L"+sx(i).toFixed(1)+","+sy(upper[i]).toFixed(1);
+    for(let i=n-1;i>=0;i--) d+=" L"+sx(i).toFixed(1)+","+sy(lower[i]).toFixed(1);
+    d+=" Z";
+    areas+=`<path d="${d}" fill="${b.color}" fill-opacity="0.5" stroke="${b.color}" stroke-width="1.5"/>`;
+    dots+=comps.map((c,i)=>`<circle class="pthit" cx="${sx(i).toFixed(1)}" cy="${sy(upper[i]).toFixed(1)}" r="10" fill="transparent" data-pt data-x="${b.name} · ${escapeHtml(monthLabel(months[i]))}" data-y="${money(b.get(c))}"></circle>`).join("");
+    lower=upper;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${yl}${xl}${areas}${dots}</svg>`;
+}
+// surplus / deficit bars: spending budget left over (green) or overspent (red) per month
+function surplusBarsSVG(months, comps){
+  const W=820,H=300,pad={l:70,r:24,t:24,b:40}, n=months.length;
+  const vals=comps.map(c=>c.budget);
+  let lo=Math.min(0,...vals), hi=Math.max(0,...vals); if(lo===hi) hi=lo+1;
+  const ystep=niceNum(niceNum(hi-lo,false)/5,true)||1; lo=Math.floor(lo/ystep)*ystep; hi=Math.ceil(hi/ystep)*ystep;
+  const sy=y=> H-pad.b-(y-lo)/(hi-lo)*(H-pad.t-pad.b);
+  const cx=i=> pad.l + (i+0.5)/n*(W-pad.l-pad.r), bw=Math.min(54,(W-pad.l-pad.r)/n*0.6);
+  let grid="",yl="";
+  for(let v=lo; v<=hi+ystep*0.001; v+=ystep){ const y=sy(v); grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="var(--sx-border)" stroke-width="1"/>`; yl+=`<text x="${pad.l-10}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--sx-text-muted)">${fmtAxis(v)}</text>`; }
+  grid+=`<line x1="${pad.l}" y1="${sy(0)}" x2="${W-pad.r}" y2="${sy(0)}" stroke="var(--sx-text-muted)" stroke-width="1.5"/>`;
+  let bars="",xl="";
+  comps.forEach((c,i)=>{ const v=c.budget, yTop=sy(Math.max(0,v)), h=Math.max(1,sy(Math.min(0,v))-yTop), color=v>=0?"#078A04":"#E0567A";
+    bars+=`<rect x="${(cx(i)-bw/2).toFixed(1)}" y="${yTop.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}" rx="3" fill="${color}" data-pt data-x="${escapeHtml(monthLabel(months[i]))}" data-y="${(v>=0?'+':'−')+money(Math.abs(v))+(v>=0?' left over':' overspent')}"></rect>`;
+    xl+=`<text x="${cx(i).toFixed(1)}" y="${H-pad.b+22}" text-anchor="middle" font-size="11" fill="var(--sx-text-muted)">${monthShort(months[i])}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${yl}${bars}${xl}</svg>`;
+}
 function trendsCardHTML(){
   const collapsed=!!state.config.trendsCollapsed;
   const chev=`<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" style="transition:transform .15s;transform:rotate(${collapsed?-90:0}deg)"><path d="M6 9l6 6 6-6"/></svg>`;
@@ -1079,13 +1131,25 @@ function trendsCardHTML(){
   if(collapsed) return `<div class="card" id="trends-card">${head}</div>`;
   const months=sortedMonths();
   if(months.length<2) return `<div class="card" id="trends-card">${head}<p class="hint" style="margin:6px 0 0">Add another month (from the picker at the top) to start seeing your figures trend over time.</p></div>`;
-  const vis=trendVis(), comps=months.map(computeMonth);
-  const series=TREND_METRICS.filter(mt=>vis[mt.key]).map(mt=>({ points:months.map((m,i)=>{ const cc=comps[i], y=mt.get(cc); return {x:i, y, label:monthLabel(m), tip: money(y)}; }), color:mt.color, name:mt.name, tag:mt.key }));
-  const toggles=TREND_METRICS.map(mt=>`<button class="trend-tog ${vis[mt.key]?"on":""}" data-trendtog="${mt.key}"><span class="dot" style="background:${mt.color}"></span>${mt.name}</button>`).join("");
-  const chart= series.length ? lineChartSVG(series,{xLabel:i=>monthShort(months[i]||""), yFmt: money, yAxis: fmtAxis, allX:true}) : `<p class="hint" style="margin:6px 0 0">Turn on a line below to draw the chart.</p>`;
+  const comps=months.map(computeMonth);
+  const view=["lines","stacked","surplus"].includes(state.config.trendView)?state.config.trendView:"lines";
+  const switcher=`<div class="trend-views">${[["lines","Lines"],["stacked","Stacked"],["surplus","Surplus"]].map(v=>`<button class="trend-view ${view===v[0]?"on":""}" data-trendview="${v[0]}">${v[1]}</button>`).join("")}</div>`;
+  let body="";
+  if(view==="lines"){
+    const vis=trendVis();
+    const series=TREND_METRICS.filter(mt=>vis[mt.key]).map(mt=>({ points:months.map((m,i)=>{ const cc=comps[i], y=mt.get(cc); return {x:i, y, label:monthLabel(m), tip: money(y)}; }), color:mt.color, name:mt.name, tag:mt.key }));
+    const toggles=TREND_METRICS.map(mt=>`<button class="trend-tog ${vis[mt.key]?"on":""}" data-trendtog="${mt.key}"><span class="dot" style="background:${mt.color}"></span>${mt.name}</button>`).join("");
+    const chart= series.length ? lineChartSVG(series,{xLabel:i=>monthShort(months[i]||""), yFmt: money, yAxis: fmtAxis, allX:true}) : `<p class="hint" style="margin:6px 0 0">Turn on a line below to draw the chart.</p>`;
+    body=`<div class="trend-togs">${toggles}</div>${chart}`;
+  } else if(view==="stacked"){
+    const leg=[["Expenses","#E0567A"],["Savings","#078A04"],["Spending","#F29E1A"]].map(x=>`<span class="trend-legi"><span class="dot" style="background:${x[1]}"></span>${x[0]}</span>`).join("");
+    body=`${stackedAreaSVG(months,comps)}<div class="trend-legend">${leg}</div>`;
+  } else {
+    body=`${surplusBarsSVG(months,comps)}<div class="trend-legend"><span class="trend-legi"><span class="dot" style="background:#078A04"></span>Left over</span><span class="trend-legi"><span class="dot" style="background:#E0567A"></span>Overspent</span></div>`;
+  }
   return `<div class="card" id="trends-card">${head}
-    <div class="trend-togs">${toggles}</div>
-    ${chart}
+    ${switcher}
+    ${body}
   </div>`;
 }
 function refreshTrends(){ const c=document.getElementById("trends-card"); if(c) c.outerHTML=trendsCardHTML(); }
@@ -2211,6 +2275,7 @@ document.querySelector(".content").addEventListener("click", e=>{
   if(e.target.id==="monthDel"){ delMonth(); return; }/* MONTH */
   if(e.target.closest("[data-trendstoggle]")){ state.config.trendsCollapsed=!state.config.trendsCollapsed; save(); refreshTrends(); return; }/* TRENDS */
   { const tt=e.target.closest("[data-trendtog]"); if(tt){ const v=trendVis(); v[tt.dataset.trendtog]=!v[tt.dataset.trendtog]; save(); refreshTrends(); return; } }/* TRENDS */
+  { const tv=e.target.closest("[data-trendview]"); if(tv){ state.config.trendView=tv.dataset.trendview; save(); refreshTrends(); return; } }/* TRENDS view */
   const alloctoggle=e.target.closest("[data-alloctoggle]");/* ALLOC */
   if(alloctoggle){ state.config.allocCollapsed = !state.config.allocCollapsed; save(); refreshAllocation(); return; }
   const bankadd=e.target.closest("[data-bankadd]");/* ALLOC */
