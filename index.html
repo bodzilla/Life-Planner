@@ -1079,10 +1079,10 @@ function trendsCardHTML(){
   if(collapsed) return `<div class="card" id="trends-card">${head}</div>`;
   const months=sortedMonths();
   if(months.length<2) return `<div class="card" id="trends-card">${head}<p class="hint" style="margin:6px 0 0">Add another month (from the picker at the top) to start seeing your figures trend over time.</p></div>`;
-  const vis=trendVis(), comps=months.map(computeMonth), hide=state.config.hideFigures;
-  const series=TREND_METRICS.filter(mt=>vis[mt.key]).map(mt=>({ points:months.map((m,i)=>{ const cc=comps[i], y=mt.get(cc); return {x:i, y, label:monthLabel(m), tip: hide ? pct(cc.gross? y/cc.gross : 0) : money(y)}; }), color:mt.color, name:mt.name, tag:mt.key }));
+  const vis=trendVis(), comps=months.map(computeMonth);
+  const series=TREND_METRICS.filter(mt=>vis[mt.key]).map(mt=>({ points:months.map((m,i)=>{ const cc=comps[i], y=mt.get(cc); return {x:i, y, label:monthLabel(m), tip: money(y)}; }), color:mt.color, name:mt.name, tag:mt.key }));
   const toggles=TREND_METRICS.map(mt=>`<button class="trend-tog ${vis[mt.key]?"on":""}" data-trendtog="${mt.key}"><span class="dot" style="background:${mt.color}"></span>${mt.name}</button>`).join("");
-  const chart= series.length ? lineChartSVG(series,{xLabel:i=>monthShort(months[i]||""), yFmt: hide?(v=>""):money, yAxis: hide?(v=>""):fmtAxis, allX:true}) : `<p class="hint" style="margin:6px 0 0">Turn on a line below to draw the chart.</p>`;
+  const chart= series.length ? lineChartSVG(series,{xLabel:i=>monthShort(months[i]||""), yFmt: money, yAxis: fmtAxis, allX:true}) : `<p class="hint" style="margin:6px 0 0">Turn on a line below to draw the chart.</p>`;
   return `<div class="card" id="trends-card">${head}
     <div class="trend-togs">${toggles}</div>
     ${chart}
@@ -1648,7 +1648,7 @@ function lineChartSVG(series, opts){
   for(let v=minY; v<=maxY+ystep*0.001; v+=ystep){
     const y=sy(v);
     grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="var(--sx-border)" stroke-width="1"/>`;
-    yl+=`<text x="${pad.l-10}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--sx-text-muted)">${axisFmt(v)}</text>`;
+    yl+=`<text x="${pad.l-10}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--sx-text-muted)">${opts.hideY ? (maxY?Math.round(v/maxY*100)+"%":"") : axisFmt(v)}</text>`;
   }
   grid+=`<line x1="${pad.l}" y1="${H-pad.b}" x2="${W-pad.r}" y2="${H-pad.b}" stroke="var(--sx-text-muted)" stroke-width="1" opacity="0.6"/>`;
   // x labels
