@@ -237,6 +237,11 @@ input,select{font-family:inherit}
 .field{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--s4)}
 .field label{font-size:12px;font-weight:600;color:var(--sx-text-muted)}
 .cfg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:var(--s4)}
+.month-nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:var(--s5)}
+.month-nav-lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sx-text-muted);margin-right:2px}
+.month-nav .month-sel{max-width:180px;font-weight:600}
+.month-nav .btn.ghost.sm{padding:5px 11px;font-size:15px;line-height:1}
+.month-add-input{width:0;opacity:0;padding:0;margin:0;border:0;pointer-events:none}
 .cloud-form .field,.cloud-cfg .field{max-width:360px}
 .cloud-who{font-size:14px}
 .cloud-status{display:inline-block;margin-left:8px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--sx-sat-100)}
@@ -610,10 +615,89 @@ function defaultState(){
   };
 }
 
-let state = load();
+/* ==================== MONTHLY HISTORY — accounting is per-month (removable) ==================== */
+function currentYM(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
+function ensureMonth(s, ym){
+  if(!s.months || typeof s.months!=="object") s.months={};
+  if(!s.months[ym]) s.months[ym]={income:[],deductions:[],expenses:[],savings:[],alloc:{}};
+  const m=s.months[ym];
+  ["income","deductions","expenses","savings"].forEach(k=>{ if(!Array.isArray(m[k])) m[k]=[]; });
+  if(!m.alloc||typeof m.alloc!=="object") m.alloc={};
+  return m;
+}
+function migrateMonths(s){
+  if(!s||typeof s!=="object") return s;
+  if(!s.months || typeof s.months!=="object"){            // old single-snapshot format → wrap into one month
+    const ym=s.currentMonth||currentYM();
+    s.months={ [ym]:{ income:s.income||[], deductions:s.deductions||[], expenses:s.expenses||[], savings:s.savings||[], alloc:(s.alloc&&typeof s.alloc==="object")?s.alloc:{} } };
+    s.currentMonth=ym;
+  }
+  ["income","deductions","expenses","savings","alloc"].forEach(k=>{ try{ delete s[k]; }catch(e){} });
+  if(!s.currentMonth || !s.months[s.currentMonth]){
+    const keys=Object.keys(s.months).sort();
+    s.currentMonth = keys[keys.length-1] || currentYM();
+  }
+  ensureMonth(s, s.currentMonth);
+  return s;
+}
+function installMonthAccessors(s){
+  ["income","deductions","expenses","savings","alloc"].forEach(k=>{
+    Object.defineProperty(s, k, { configurable:true, enumerable:false,
+      get(){ return ensureMonth(s, s.currentMonth)[k]; },
+      set(v){ ensureMonth(s, s.currentMonth)[k]=v; } });
+  });
+}
+function useState(obj){ migrateMonths(obj); installMonthAccessors(obj); return obj; }
+function monthLabel(ym){ const p=(ym||"").split("-"); const mi=(+p[1]||1)-1; return (MONTHS[mi]||"")+" "+(p[0]||""); }
+function sortedMonths(){ return Object.keys(state.months||{}).sort(); }
+function nextYM(ym){ let [y,m]=ym.split("-").map(Number); m++; if(m>12){m=1;y++;} return y+"-"+String(m).padStart(2,"0"); }
+function refreshMonthUIState(){ expanded.clear(); notesOpen.clear(); openExistingNotes(); }
+// select the current calendar month, creating it (copied from the most recent month) if it doesn't exist
+function gotoCurrentMonth(){
+  const ym=currentYM(); let created=false;
+  if(!state.months[ym]){
+    const months=sortedMonths();
+    const prior = months.filter(m=>m<=ym).pop() || months[months.length-1];
+    const src = prior ? state.months[prior] : null;
+    state.months[ym] = src ? JSON.parse(JSON.stringify({income:src.income||[],deductions:src.deductions||[],expenses:src.expenses||[],savings:src.savings||[],alloc:src.alloc||{}}))
+                           : {income:[],deductions:[],expenses:[],savings:[],alloc:{}};
+    created=true;
+  }
+  state.currentMonth=ym;
+  return created;
+}
+function switchMonth(ym){ if(!state.months[ym]) return; state.currentMonth=ym; refreshMonthUIState(); persist(); rerenderCurrent(); }
+function addMonthAt(ym){
+  if(!/^\d{4}-\d{2}$/.test(ym)) return;
+  if(state.months[ym]){ switchMonth(ym); return; }
+  const src=state.months[state.currentMonth]||{};
+  state.months[ym]=JSON.parse(JSON.stringify({income:src.income||[],deductions:src.deductions||[],expenses:src.expenses||[],savings:src.savings||[],alloc:src.alloc||{}}));
+  state.currentMonth=ym; refreshMonthUIState(); save(); rerenderCurrent(); toast("Added "+monthLabel(ym));
+}
+function addMonth(){
+  const months=sortedMonths(); const latest=months[months.length-1]||currentYM(); const suggest=nextYM(latest);
+  const inp=document.getElementById("monthAddInput");
+  if(inp && typeof inp.showPicker==="function"){
+    inp.value=suggest;
+    try{ inp.showPicker(); return; }catch(_){}
+  }
+  const ym=(prompt("New month (YYYY-MM) — starts as a copy of the current month:", suggest)||"").trim();
+  if(ym && !/^\d{4}-\d{2}$/.test(ym)){ toast("Use the format YYYY-MM, e.g. 2026-07"); return; }
+  if(ym) addMonthAt(ym);
+}
+function delMonth(){
+  if(sortedMonths().length<2) return;
+  if(!confirm("Delete "+monthLabel(state.currentMonth)+"? This removes that month's accounting (other months are unaffected).")) return;
+  delete state.months[state.currentMonth];
+  const months=sortedMonths(); state.currentMonth=months[months.length-1];
+  refreshMonthUIState(); save(); rerenderCurrent();
+}
+/* ==================== END MONTHLY HISTORY ==================== */
+
+let state = useState(load());
+gotoCurrentMonth(); persist();/* MONTH: open on the current calendar month */
 if(!Array.isArray(state.mortgage)) state.mortgage = [];/* MORTGAGE */
 if(!Array.isArray(state.banks)) state.banks = [];/* ALLOC */
-if(!state.alloc || typeof state.alloc!=="object") state.alloc = {};/* ALLOC */
 let sb=null, sbUser=null, cloudEditing=false;/* CLOUD */
 
 function load(){
@@ -649,7 +733,7 @@ function commitHistory(){
 }
 function flushCommit(){ if(commitTimer) commitHistory(); }
 function restore(snap){
-  state=JSON.parse(snap);
+  state=useState(JSON.parse(snap));
   persist();
   rerenderCurrent();
   updateUndoUI();
@@ -736,13 +820,14 @@ function compute(){
   const totalSavings = state.savings.reduce((s,v)=>s+itemAmount(v),0);
   const netIncome = monthlyGross - totalDeductions;
   const incomeRetained = monthlyGross ? netIncome/monthlyGross : 0;
-  const np = nowParts();
-  const weeks = np.days/7;
+  const ym=(state.currentMonth||currentYM()).split("-"); const year=+ym[0]||nowParts().year; const mIdx=((+ym[1]||1)-1+12)%12;
+  const days=new Date(year, mIdx+1, 0).getDate();
+  const weeks = days/7;
   const monthBudget = netIncome - (totalExpenses + totalSavings);
   const weeklyBudget = weeks ? monthBudget/weeks : 0;
   const dailyBudget = weeklyBudget/7;
   return {monthlyGross,totalExpenses,totalDeductions,totalSavings,netIncome,
-    incomeRetained,weeks,monthBudget,weeklyBudget,dailyBudget,monthName:np.month,year:np.year};
+    incomeRetained,weeks,monthBudget,weeklyBudget,dailyBudget,monthName:MONTHS[mIdx]||"",year};
 }
 
 /* ============================================================ RENDERERS */
@@ -814,7 +899,17 @@ function nestRows(section, withRound){
 function renderAccounting(){
   const c = compute();
   const el = document.getElementById("view-accounting");
-  el.innerHTML = `
+  const months=sortedMonths(), mi=months.indexOf(state.currentMonth);
+  const navHTML=`<div class="month-nav">
+      <span class="month-nav-lbl">Month</span>
+      <button class="btn ghost sm" id="monthPrev" ${mi<=0?"disabled":""} aria-label="Previous month" title="Previous month">&#8249;</button>
+      <select class="in month-sel" id="monthSel">${months.map(m=>`<option value="${m}" ${m===state.currentMonth?"selected":""}>${monthLabel(m)}</option>`).join("")}</select>
+      <button class="btn ghost sm" id="monthNext" ${mi>=months.length-1?"disabled":""} aria-label="Next month" title="Next month">&#8250;</button>
+      <button class="btn sm" id="monthAdd">+ New month</button>
+      <input type="month" id="monthAddInput" class="month-add-input" tabindex="-1" aria-hidden="true">
+      ${months.length>1?`<button class="btn ghost sm danger" id="monthDel" title="Delete this month">Delete</button>`:""}
+    </div>`;
+  el.innerHTML = navHTML + `
     <div class="stats">
       <div class="stat blue"><div class="label">Monthly Net</div><div class="val" id="s-net">${money(c.netIncome)}</div><div class="meta">Gross <span id="s-gross">${money(c.monthlyGross)}</span></div></div>
       <div class="stat dark"><div class="label">Total Deductions</div><div class="val" id="s-deductions">${money(c.totalDeductions)}</div><div class="meta">${pct(c.monthlyGross?c.totalDeductions/c.monthlyGross:0)} of gross</div></div>
@@ -1901,6 +1996,8 @@ document.querySelector(".content").addEventListener("focusout", e=>{
 document.querySelector(".content").addEventListener("change", e=>{
   const t=e.target;
   if(t.id==="inc-net-toggle"){ state.config.includeNet=t.checked; save(); renderDonuts(); return; }
+  if(t.id==="monthSel"){ switchMonth(t.value); return; }/* MONTH */
+  if(t.id==="monthAddInput"){ if(t.value) addMonthAt(t.value); return; }/* MONTH picker */
   if(t.id==="hide-fig-toggle"){ state.config.hideFigures=t.checked; save(); renderDonuts(); refreshSankey(); return; }/* hide figures */
   if(t.dataset.allocpick){/* ALLOC */
     const id=t.dataset.allocpick;
@@ -1995,6 +2092,10 @@ function addTableRow(sec){
 
 // add / delete / add-row / toggle / notes
 document.querySelector(".content").addEventListener("click", e=>{
+  if(e.target.id==="monthPrev"){ const ms=sortedMonths(),i=ms.indexOf(state.currentMonth); if(i>0) switchMonth(ms[i-1]); return; }/* MONTH */
+  if(e.target.id==="monthNext"){ const ms=sortedMonths(),i=ms.indexOf(state.currentMonth); if(i<ms.length-1) switchMonth(ms[i+1]); return; }/* MONTH */
+  if(e.target.id==="monthAdd"){ addMonth(); return; }/* MONTH */
+  if(e.target.id==="monthDel"){ delMonth(); return; }/* MONTH */
   const alloctoggle=e.target.closest("[data-alloctoggle]");/* ALLOC */
   if(alloctoggle){ state.config.allocCollapsed = !state.config.allocCollapsed; save(); refreshAllocation(); return; }
   const bankadd=e.target.closest("[data-bankadd]");/* ALLOC */
@@ -2167,13 +2268,13 @@ document.getElementById("importFile").addEventListener("change",e=>{
   r.onload=()=>{ try{
     const s=JSON.parse(r.result);
     if(!s||!s.config) throw 0;
-    state=s; ensureAuto(state); if(!Array.isArray(state.mortgage)) state.mortgage=[];/* MORTGAGE */ if(!Array.isArray(state.banks)) state.banks=[]; if(!state.alloc||typeof state.alloc!=="object") state.alloc={};/* ALLOC */ openExistingNotes(); save(); rerenderCurrent(); toast("Backup imported");
+    state=useState(s); ensureAuto(state); if(!Array.isArray(state.mortgage)) state.mortgage=[];/* MORTGAGE */ if(!Array.isArray(state.banks)) state.banks=[];/* ALLOC */ openExistingNotes(); save(); rerenderCurrent(); toast("Backup imported");
   }catch(err){ toast("Invalid backup file"); } };
   r.readAsText(file);
 });
 function resetData(){
   if(confirm("Reset everything to the simple sample data? Your current data will be replaced (export a backup first if you want to keep it).")){
-    state=defaultState();
+    state=useState(defaultState());
     ensureAuto(state);
     expanded.clear(); notesOpen.clear();
     state.expenses.concat(state.savings).forEach(it=>{ if(it.children&&it.children.length) expanded.add(it.id); });
@@ -2301,12 +2402,13 @@ async function cloudAdopt(){
   }catch(e){ cloudSetStatus("error", e.message||"couldn't sync"); }
 }
 function applyCloudState(obj){
-  state=obj;
+  state=useState(obj);
   ensureAuto(state);
   if(!Array.isArray(state.mortgage)) state.mortgage=[];
   if(!Array.isArray(state.banks)) state.banks=[];
-  if(!state.alloc||typeof state.alloc!=="object") state.alloc={};
+  const created=gotoCurrentMonth();/* MONTH: land on current month */
   openExistingNotes(); persist(); rerenderCurrent();
+  if(created && sbUser) scheduleCloudPush();
 }
 async function cloudSignIn(email,password){
   const c=cloudInitClient(); if(!c) return {error:"Cloud not configured"};
