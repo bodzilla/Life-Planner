@@ -2,7 +2,7 @@
 <html lang="en" data-theme="light">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Life Planner</title>
 <style>
 :root{
@@ -36,7 +36,8 @@
 *{box-sizing:border-box;margin:0;padding:0}
 html,body{height:100%}
 body{font-family:var(--sx-font);color:var(--sx-text);background:var(--sx-bg);
-  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+  font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  -webkit-text-size-adjust:100%;text-size-adjust:100%;overflow-x:hidden}
 h1,h2,h3,h4{font-family:var(--sx-font-display);font-weight:700;letter-spacing:-0.01em}
 button{font-family:inherit;cursor:pointer}
 input,select{font-family:inherit}
@@ -104,6 +105,9 @@ input,select{font-family:inherit}
 .stat .val{font-size:28px;font-weight:700;font-family:var(--sx-font-display);margin-top:6px;line-height:1.1}
 .stat .meta{font-size:12px;opacity:.8;margin-top:6px}
 .budget-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--s4)}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media(max-width:760px){.cols{grid-template-columns:1fr;gap:var(--s4)}}
+@media(max-width:900px){.alloc-results{position:static}}
 .budget-cell{position:relative;background:var(--sx-sat-50);border:1px solid var(--sx-border);border-radius:14px;
   padding:20px 16px 16px;text-align:center;overflow:hidden;transition:transform .14s,box-shadow .14s}
 .budget-cell::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:var(--sx-sat-300)}
@@ -241,6 +245,7 @@ input,select{font-family:inherit}
 .month-nav-lbl{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--sx-text-muted);margin-right:2px}
 .month-nav .month-sel{max-width:180px;font-weight:600}
 .month-nav .btn.ghost.sm{padding:5px 11px;font-size:15px;line-height:1}
+.month-acts{display:flex;align-items:center;gap:8px}
 .month-add-input{width:0;opacity:0;padding:0;margin:0;border:0;pointer-events:none}
 .dwrap{min-height:0}
 .stat-delta{display:inline-block;margin-top:9px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:rgba(0,0,0,0.22);color:rgba(255,255,255,0.85)}
@@ -444,6 +449,57 @@ td.calc{color:var(--sx-text-muted);font-variant-numeric:tabular-nums;font-weight
   .scrim{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:55}
   .scrim.show{display:block}
 }
+/* ---- responsive data tables → stacked cards (opt-in via .tbl-stack) ---- */
+@media(max-width:700px){
+  .tbl-wrap.tbl-stack{overflow:visible;border:0;border-radius:0}
+  .tbl-wrap.tbl-stack table{display:block;width:100%;min-width:0}
+  .tbl-wrap.tbl-stack thead{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0}
+  .tbl-wrap.tbl-stack tbody,.tbl-wrap.tbl-stack tr,.tbl-wrap.tbl-stack td{display:block;width:100%}
+  .tbl-wrap.tbl-stack tr{border:1px solid var(--sx-border);border-radius:12px;padding:2px 12px;margin-bottom:10px}
+  .tbl-wrap.tbl-stack td{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid var(--sx-border);text-align:right;min-height:0}
+  .tbl-wrap.tbl-stack tr td:last-child{border-bottom:0}
+  .tbl-wrap.tbl-stack td::before{content:attr(data-label);color:var(--sx-text-muted);font-size:12px;font-weight:600;text-align:left;white-space:nowrap;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .tbl-wrap.tbl-stack td input.in{flex:0 0 150px;width:150px;max-width:150px!important;text-align:right}
+  .tbl-wrap.tbl-stack td.td-action{justify-content:flex-end;padding:6px 0}
+  .tbl-wrap.tbl-stack td.td-action::before{content:none}
+  .tbl-wrap.tbl-stack td.td-flag{justify-content:flex-start}
+  .tbl-wrap.tbl-stack td.td-stack{flex-direction:column;align-items:stretch;gap:4px;text-align:left}
+  .tbl-wrap.tbl-stack td.td-stack::before{text-align:left}
+  .tbl-wrap.tbl-stack td.td-stack input.in{flex:1 1 auto;width:100%;max-width:none!important;text-align:left}
+}
+/* ---- phone foundations ---- */
+@media(max-width:560px){
+  .content{padding:14px;padding-bottom:max(14px,env(safe-area-inset-bottom))}
+  .topbar{padding:10px 14px;gap:8px}
+  .topbar{padding-left:max(14px,env(safe-area-inset-left));padding-right:max(14px,env(safe-area-inset-right))}
+  .topbar h1{font-size:17px}
+  .topbar .crumb{font-size:11px}
+  .tools{gap:6px}
+  .tb-label{display:none}                 /* Undo/Redo/More become icon-only */
+  .btn.sm{padding:7px 10px}
+  /* 16px inputs stop iOS from zooming in on focus */
+  .in,input.in,select.in,textarea.in,.note-in{font-size:16px}
+  .stat{min-height:auto;padding:16px}
+  .stat .val{font-size:22px}
+  .budget-cell .v{font-size:22px}
+  .card{padding:var(--s4)}
+  /* finger-friendly icon buttons */
+  .iconbtn{flex-basis:36px;height:34px}
+  .sidebar{padding-left:env(safe-area-inset-left)}
+  /* Accounting */
+  .viz-section{padding:var(--s4)}
+  .month-nav .btn{padding:8px 12px}
+  .month-nav .month-sel{max-width:none;flex:1 1 140px}
+  #alloc-card .alloc-bankrow .in{width:auto;flex:1 1 120px;min-width:0}
+  .alloc-ctrl>.alloc-select{min-width:0}
+  .alloc-seg .alloc-select{min-width:0;flex:1 1 90px}
+  .alloc-seg .alloc-amt{flex:1 1 84px;width:auto}
+  .trend-views{display:flex;width:100%}
+  .trend-view{flex:1;padding:6px 4px;text-align:center}
+  /* Configuration */
+  .cfg-btns{flex-direction:column}
+  .cfg-btns .btn{width:100%}
+}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
@@ -479,14 +535,13 @@ td.calc{color:var(--sx-text-muted);font-variant-numeric:tabular-nums;font-weight
         </div>
       </div>
       <div class="tools">
-        <button class="btn ghost sm" id="undoBtn" title="Undo (Ctrl/Cmd+Z)" disabled>&#8634; Undo</button>
-        <button class="btn ghost sm" id="redoBtn" title="Redo (Ctrl+Y / Cmd+Shift+Z)" disabled>&#8635; Redo</button>
+        <button class="btn ghost sm" id="undoBtn" title="Undo (Ctrl/Cmd+Z)" disabled>&#8634;<span class="tb-label"> Undo</span></button>
+        <button class="btn ghost sm" id="redoBtn" title="Redo (Ctrl+Y / Cmd+Shift+Z)" disabled>&#8635;<span class="tb-label"> Redo</span></button>
         <div class="tb-menu">
-          <button class="btn ghost sm" id="tbMenuBtn" aria-label="More actions">&#8943;&nbsp; More</button>
+          <button class="btn ghost sm" id="tbMenuBtn" aria-label="More actions">&#8943;<span class="tb-label">&nbsp; More</span></button>
           <div class="tb-dropdown" id="tbDropdown">
             <div class="tb-group">Appearance</div>
             <button class="tb-item" id="themeBtn">&#9681;&nbsp; Toggle theme</button>
-            <button class="tb-item" id="printBtn">&#128424;&nbsp; Print</button>
             <div class="tb-group">Data</div>
             <button class="tb-item" id="exportBtn">Export backup</button>
             <button class="tb-item" id="importBtn">Import backup</button>
@@ -941,9 +996,11 @@ function renderAccounting(){
       <button class="btn ghost sm" id="monthPrev" ${mi<=0?"disabled":""} aria-label="Previous month" title="Previous month">&#8249;</button>
       <select class="in month-sel" id="monthSel">${months.map(m=>`<option value="${m}" ${m===state.currentMonth?"selected":""}>${monthLabel(m)}</option>`).join("")}</select>
       <button class="btn ghost sm" id="monthNext" ${mi>=months.length-1?"disabled":""} aria-label="Next month" title="Next month">&#8250;</button>
-      <button class="btn sm" id="monthAdd">+ New month</button>
-      <input type="month" id="monthAddInput" class="month-add-input" tabindex="-1" aria-hidden="true">
-      ${months.length>1?`<button class="btn ghost sm danger" id="monthDel" title="Delete this month">Delete</button>`:""}
+      <div class="month-acts">
+        <button class="btn sm" id="monthAdd">+ New month</button>
+        <input type="month" id="monthAddInput" class="month-add-input" tabindex="-1" aria-hidden="true">
+        ${months.length>1?`<button class="iconbtn" id="monthDel" title="Delete this month" aria-label="Delete this month">${TRASH}</button>`:""}
+      </div>
     </div>`;
   el.innerHTML = navHTML + `
     <div class="stats">
@@ -994,7 +1051,7 @@ function renderAccounting(){
       </div>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px" class="cols">
+    <div class="cols">
       <div class="card">
         <div class="card-h"><h3 class="section-title" style="margin:0">Monthly Gross Income</h3><button class="btn primary sm" data-add="income">+ Add</button></div>
         <div class="linegrid" id="grid-income">${lineRows("income","annual")}</div>
@@ -1474,13 +1531,13 @@ function renderSalary(){
   const cls = v => v==null?"calc":(v>=0?"pos":"neg");
   const body = rows.map(r=>`
     <tr data-id="${r.id}">
-      <td><input class="in num" type="number" step="1" style="max-width:90px" data-section="salary" data-id="${r.id}" data-field="year" value="${r.year}"></td>
-      <td><input class="in num num-in money-in" type="text" inputmode="decimal" data-section="salary" data-id="${r.id}" data-field="salary" value="${fmtNum(r.salary)}"></td>
-      <td><input class="in num pct-in" type="text" inputmode="decimal" style="max-width:100px" data-section="salary" data-id="${r.id}" data-field="inflation" value="${fmtPct2(r.inflation)}"></td>
-      <td class="num ${cls(r.nominal)}">${r.nominal==null?"N/A":pct(r.nominal)}</td>
-      <td class="num ${cls(r.real)}">${r.real==null?"N/A":pct(r.real)}</td>
-      <td class="num ${cls(r.gain)}">${r.gain==null?"N/A":money(r.gain)}</td>
-      <td style="text-align:right"><button class="iconbtn" data-del="salary" data-id="${r.id}" title="Remove">${TRASH}</button></td>
+      <td data-label="Year"><input class="in num" type="number" step="1" style="max-width:90px" data-section="salary" data-id="${r.id}" data-field="year" value="${r.year}"></td>
+      <td data-label="Salary"><input class="in num num-in money-in" type="text" inputmode="decimal" data-section="salary" data-id="${r.id}" data-field="salary" value="${fmtNum(r.salary)}"></td>
+      <td data-label="Avg Inflation"><input class="in num pct-in" type="text" inputmode="decimal" style="max-width:100px" data-section="salary" data-id="${r.id}" data-field="inflation" value="${fmtPct2(r.inflation)}"></td>
+      <td data-label="Nominal Δ" class="num ${cls(r.nominal)}">${r.nominal==null?"N/A":pct(r.nominal)}</td>
+      <td data-label="Real Δ" class="num ${cls(r.real)}">${r.real==null?"N/A":pct(r.real)}</td>
+      <td data-label="Real Gain/Loss" class="num ${cls(r.gain)}">${r.gain==null?"N/A":money(r.gain)}</td>
+      <td class="td-action" style="text-align:right"><button class="iconbtn" data-del="salary" data-id="${r.id}" title="Remove">${TRASH}</button></td>
     </tr>`).join("");
   el.innerHTML = `
     <div class="stats">
@@ -1491,7 +1548,7 @@ function renderSalary(){
     ${salaryChart(rows)}
     <div class="card">
       <div class="card-h"><h2>Salary vs. Inflation</h2><span class="hint">Enter inflation as a percentage (e.g. 3.2 for 3.2%)</span></div>
-      <div class="tbl-wrap"><table>
+      <div class="tbl-wrap tbl-stack"><table>
         <thead><tr><th>Year</th><th class="num">Salary</th><th class="num">Avg Inflation</th><th class="num">Nominal Δ</th><th class="num">Real Δ</th><th class="num">Real Gain/Loss</th><th></th></tr></thead>
         <tbody>${body}</tbody>
       </table></div>
@@ -1561,11 +1618,11 @@ function renderLoan(){
   if(proj.ok){ const lp=actualPts[actualPts.length-1]; chartSeries.push({points:[{x:lp.x,y:lp.y},{x:proj.clearT,y:0}], color:"#9FB0C7", dash:true, name:"Projected"}); }
   const body = rows.map(r=>`
     <tr data-id="${r.id}">
-      <td><input class="in" type="date" style="max-width:160px" data-section="loan" data-id="${r.id}" data-field="date" value="${r.date}"></td>
-      <td><input class="in num num-in money-in" type="text" inputmode="decimal" data-section="loan" data-id="${r.id}" data-field="balance" value="${fmtNum(r.balance)}"></td>
-      <td class="num ${r.reduced==null?"calc":(r.reduced>=0?"pos":"neg")}">${r.reduced==null?"N/A":money(r.reduced)}</td>
-      <td class="num ${r.pctChange==null?"calc":(r.pctChange>=0?"pos":"neg")}">${r.pctChange==null?"N/A":pct(r.pctChange)}</td>
-      <td style="text-align:right"><button class="iconbtn" data-del="loan" data-id="${r.id}" title="Remove">${TRASH}</button></td>
+      <td data-label="Date"><input class="in" type="date" style="max-width:160px" data-section="loan" data-id="${r.id}" data-field="date" value="${r.date}"></td>
+      <td data-label="Balance"><input class="in num num-in money-in" type="text" inputmode="decimal" data-section="loan" data-id="${r.id}" data-field="balance" value="${fmtNum(r.balance)}"></td>
+      <td data-label="Amount Reduced" class="num ${r.reduced==null?"calc":(r.reduced>=0?"pos":"neg")}">${r.reduced==null?"N/A":money(r.reduced)}</td>
+      <td data-label="% From Previous" class="num ${r.pctChange==null?"calc":(r.pctChange>=0?"pos":"neg")}">${r.pctChange==null?"N/A":pct(r.pctChange)}</td>
+      <td class="td-action" style="text-align:right"><button class="iconbtn" data-del="loan" data-id="${r.id}" title="Remove">${TRASH}</button></td>
     </tr>`).join("");
   el.innerHTML = `
     <div class="stats">
@@ -1583,7 +1640,7 @@ function renderLoan(){
     </div>
     <div class="card">
       <div class="card-h"><h2>Repayment History</h2><span class="hint">Reduction &amp; % change vs previous entry</span></div>
-      <div class="tbl-wrap"><table>
+      <div class="tbl-wrap tbl-stack"><table>
         <thead><tr><th>Date</th><th class="num">Balance</th><th class="num">Amount Reduced</th><th class="num">% From Previous</th><th></th></tr></thead>
         <tbody>${body}</tbody>
       </table></div>
@@ -1647,14 +1704,14 @@ function renderMortgage(){
     const offCls = r.offset==null?"calc":(r.offset<0.5?"pos":"neg");
     return `
     <tr data-id="${r.id}" class="${r.anchor?"tracking-start":""}">
-      <td><input class="in" type="date" style="max-width:160px" data-section="mortgage" data-id="${r.id}" data-field="date" value="${r.date}"></td>
-      <td><input class="in num num-in money-in" type="text" inputmode="decimal" data-section="mortgage" data-id="${r.id}" data-field="balance" value="${fmtNum(r.balance)}"></td>
-      <td><input class="in num num-in money-in" type="text" inputmode="decimal" data-section="mortgage" data-id="${r.id}" data-field="interest" value="${fmtNum(r.interest||0)}"></td>
-      <td class="num ${redCls}">${r.reduced==null?"N/A":money(r.reduced)}</td>
-      <td class="num ${pctCls}">${r.pctChange==null?"N/A":pct(r.pctChange)}</td>
-      <td class="num ${intCls}">${r.interestPct==null?"N/A":pct(r.interestPct)}</td>
-      <td class="num ${offCls}">${r.offset==null?"N/A":pct(r.offset)}</td>
-      <td style="text-align:right;white-space:nowrap">
+      <td data-label="Date"><input class="in" type="date" style="max-width:160px" data-section="mortgage" data-id="${r.id}" data-field="date" value="${r.date}"></td>
+      <td data-label="Balance"><input class="in num num-in money-in" type="text" inputmode="decimal" data-section="mortgage" data-id="${r.id}" data-field="balance" value="${fmtNum(r.balance)}"></td>
+      <td data-label="Interest Added"><input class="in num num-in money-in" type="text" inputmode="decimal" data-section="mortgage" data-id="${r.id}" data-field="interest" value="${fmtNum(r.interest||0)}"></td>
+      <td data-label="Amount Reduced" class="num ${redCls}">${r.reduced==null?"N/A":money(r.reduced)}</td>
+      <td data-label="% From Previous" class="num ${pctCls}">${r.pctChange==null?"N/A":pct(r.pctChange)}</td>
+      <td data-label="% Interest Added" class="num ${intCls}">${r.interestPct==null?"N/A":pct(r.interestPct)}</td>
+      <td data-label="% to Interest" class="num ${offCls}">${r.offset==null?"N/A":pct(r.offset)}</td>
+      <td class="td-action" style="text-align:right;white-space:nowrap">
         <button class="iconbtn anchor-btn ${r.anchor?"on":""}" data-anchor="mortgage" data-id="${r.id}" title="${r.anchor?"Tracking starts here — click to clear":"Start tracking here"}">${FLAG}</button>
         <button class="iconbtn" data-del="mortgage" data-id="${r.id}" title="Remove">${TRASH}</button>
       </td>
@@ -1681,8 +1738,8 @@ function renderMortgage(){
     ${mortgageExtraCards(latest, rows)}
     <div class="card">
       <div class="card-h"><h2>Repayment History</h2><span class="hint">% to Interest measured from ${trackFrom} — flag a row to change it</span></div>
-      <div class="tbl-wrap"><table>
-        <thead><tr><th>Date</th><th class="num">Balance</th><th class="num">Interest Added</th><th class="num">Amount Reduced</th><th class="num">% From Previous</th><th class="num">% Interest Added</th><th class="num">% to Interest</th><th></th></tr></thead>
+      <div class="tbl-wrap tbl-stack"><table>
+        <thead><tr><th>Date</th><th class="num">Balance</th><th class="num">Interest Added</th><th class="num">Amount Reduced</th><th class="num">% From Previous</th><th class="num">% Interest Added</th><th class="num">% to Interest</th><th></th></tr></thead><!-- tbl-stack applied on wrapper -->
         <tbody>${body}</tbody>
       </table></div>
       <div class="tbl-actions"><button class="btn primary sm" data-addrow="mortgage">+ Add entry</button></div>
@@ -1833,16 +1890,16 @@ function renderLiving(){
   const body = rows.map((r,i)=>{
     const next = rows[i+1];
     return `<tr data-id="${r.id}">
-      <td><input class="in" data-section="living" data-id="${r.id}" data-field="address" value="${escapeHtml(r.address)}" placeholder="Address"></td>
-      <td><input class="in" type="date" style="max-width:160px" data-section="living" data-id="${r.id}" data-field="date" value="${r.date}"></td>
-      <td class="calc">${spanYears(r.date, next?next.date:null)}${next?"":' <span class="muted">(current)</span>'}</td>
-      <td style="text-align:right"><button class="iconbtn" data-del="living" data-id="${r.id}" title="Remove">${TRASH}</button></td>
+      <td data-label="Address" class="td-stack"><input class="in" data-section="living" data-id="${r.id}" data-field="address" value="${escapeHtml(r.address)}" placeholder="Address"></td>
+      <td data-label="Date Moved In"><input class="in" type="date" style="max-width:160px" data-section="living" data-id="${r.id}" data-field="date" value="${r.date}"></td>
+      <td data-label="Time There" class="calc">${spanYears(r.date, next?next.date:null)}${next?"":' <span class="muted">(current)</span>'}</td>
+      <td class="td-action" style="text-align:right"><button class="iconbtn" data-del="living" data-id="${r.id}" title="Remove">${TRASH}</button></td>
     </tr>`;
   }).join("");
   el.innerHTML = `
     <div class="card">
       <div class="card-h"><h2>Address History</h2><span class="hint">Duration calculated automatically</span></div>
-      <div class="tbl-wrap"><table style="min-width:520px">
+      <div class="tbl-wrap tbl-stack"><table>
         <thead><tr><th>Address</th><th>Date Moved In</th><th>Time There</th><th></th></tr></thead>
         <tbody>${body}</tbody>
       </table></div>
@@ -1878,7 +1935,7 @@ function renderConfig(){
     </div>`; })()}
     <div class="card">
       <div class="card-h"><h2>Data</h2><span class="hint">Stored only in this browser via localStorage</span></div>
-      <div style="display:flex;gap:12px;flex-wrap:wrap">
+      <div class="cfg-btns" style="display:flex;gap:12px;flex-wrap:wrap">
         <button class="btn" id="cfgExport">Export backup (JSON)</button>
         <button class="btn" id="cfgImport">Import backup</button>
         <button class="btn danger" id="cfgReset">Reset to sample data</button>
@@ -2472,16 +2529,6 @@ document.getElementById("themeBtn").onclick=()=>{
   try{localStorage.setItem("lifeplanner_theme",next);}catch(e){}
   rerenderCurrent();
 };
-document.getElementById("printBtn").onclick=()=>{
-  const tab=TABS.find(t=>t.key===document.querySelector(".view.active").dataset.view);
-  const today=new Date().toLocaleDateString(undefined,{day:"2-digit",month:"long",year:"numeric"});
-  document.getElementById("printHead").innerHTML=`<div class="ph-title">Life Planner — ${tab?tab.title:""}</div><div class="ph-date">${today}</div>`;
-  // print uses light theme for legibility, then restores
-  const prev=document.documentElement.getAttribute("data-theme");
-  document.documentElement.setAttribute("data-theme","light");
-  window.print();
-  setTimeout(()=>{ if(prev) document.documentElement.setAttribute("data-theme",prev); },300);
-};
 // config-tab buttons (delegated since rendered dynamically)
 document.querySelector(".content").addEventListener("click",e=>{
   if(e.target.id==="cfgExport")exportData();
@@ -2497,8 +2544,7 @@ document.addEventListener("click",e=>{
   if(hit("#cloudSignUp")){ cloudMsg(""); cloudSignUp(cloudVal("cloud-email"),cloudVal("cloud-pass")).then(r=>{ if(r&&r.error) cloudMsg(r.error); else if(r&&r.needConfirm) cloudMsg("Account created — check your email to confirm, then sign in."); else closeCloudPop(); }); return; }
   if(hit("#cloudSignOut")){ cloudSignOut(); closeCloudPop(); return; }
   if(hit("#cloudSyncNow")){ cloudPush(); return; }
-  if(hit("#cloudEditCfg")){ cloudEditing=true; renderConfig(); return; }
-  if(hit("#cloudSaveCfg")){ localStorage.setItem(SB_URL_KEY,cloudVal("cloud-url")); localStorage.setItem(SB_ANON_KEY,cloudVal("cloud-key")); sb=null; cloudEditing=false; renderConfig(); cloudInit(); return; }
+
   if(cloudPopEl && cloudPopEl.classList.contains("show") && !hit("#cloud-pop")) closeCloudPop();
 });
 
@@ -2543,7 +2589,7 @@ const SB_URL_KEY="lp_sb_url", SB_ANON_KEY="lp_sb_anon", SB_SYNCED_KEY="lp_synced
 const SB_URL_DEFAULT="https://bqsgfedpvneyzjjexkpn.supabase.co";
 const SB_ANON_DEFAULT="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJxc2dmZWRwdm5leXpqamV4a3BuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NjA0OTIsImV4cCI6MjEwNjMzNjQ5Mn0.Ort1cb-KuUR_6jRoGgbcl2Xz0h_EcE1y18sfdp1R3Fw";
 let cloudPushTimer=null, cloudDirty=false, cloudStatusKind="", cloudStatusMsg="";
-function cloudCfg(){ return { url:(localStorage.getItem(SB_URL_KEY)||SB_URL_DEFAULT).trim(), key:(localStorage.getItem(SB_ANON_KEY)||SB_ANON_DEFAULT).trim() }; }
+function cloudCfg(){ return { url:SB_URL_DEFAULT.trim(), key:SB_ANON_DEFAULT.trim() }; }/* locked to baked-in project */
 function cloudLibReady(){ return !!(window.supabase && window.supabase.createClient); }
 function cloudConfigured(){ const c=cloudCfg(); return !!(c.url && c.key); }
 function cloudInitClient(){
@@ -2619,26 +2665,15 @@ function cloudSetStatus(kind,msg){
 }
 function cloudMsg(m){ const e=document.getElementById("cloud-msg"); if(e) e.textContent=m||""; }
 function cloudVal(id){ const e=document.getElementById(id); return e?e.value.trim():""; }
-function cloudCfgFormHTML(){
-  const cfg=cloudCfg();
-  return `<div class="cloud-cfg">
-    <p class="hint" style="margin:0 0 10px">Paste your Supabase project details (Project Settings → API). The anon key is public and safe to store here; your data is protected by row-level security.</p>
-    <div class="field"><label>Project URL</label><input class="in" id="cloud-url" placeholder="https://xxxx.supabase.co" value="${escapeHtml(cfg.url)}"></div>
-    <div class="field"><label>Anon public key</label><input class="in" id="cloud-key" placeholder="eyJhbGci..." value="${escapeHtml(cfg.key)}"></div>
-    <button class="btn primary sm" id="cloudSaveCfg" style="margin-top:6px">Save &amp; continue</button>
-  </div>`;
-}
 function cloudSyncCardHTML(){
   let body;
   if(!cloudLibReady()){
     body=`<p class="hint">The cloud library couldn't load (you may be offline). Your data is still saved locally — reconnect and reload to enable sync.</p>`;
   } else if(sbUser){
     body=`<p class="cloud-who">Signed in as <strong>${escapeHtml(sbUser.email||"account")}</strong> <span class="cloud-status sync-ok" id="cloud-status">Synced</span></p>
-      <p class="hint">Manage sign-in and sync from the account button in the top-right.</p>
-      ${cloudEditing?cloudCfgFormHTML():`<button class="auto-link" id="cloudEditCfg">Change project settings</button>`}`;
+      <p class="hint">Manage sign-in and sync from the account button in the top-right.</p>`;
   } else {
-    body=`<p class="hint">Not signed in. Use the <strong>Sign in</strong> button in the top-right to back up &amp; sync your data across devices.</p>
-      ${cloudEditing?cloudCfgFormHTML():`<button class="auto-link" id="cloudEditCfg">Change project settings</button>`}`;
+    body=`<p class="hint">Not signed in. Use the <strong>Sign in</strong> button in the top-right to back up &amp; sync your data across devices.</p>`;
   }
   return `<div class="card" id="cloud-card">
     <div class="card-h"><h2>Cloud Sync</h2><span class="hint">Back up &amp; sync across devices</span></div>
