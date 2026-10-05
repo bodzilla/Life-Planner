@@ -271,6 +271,15 @@ input,select{font-family:inherit}
 .spark-chip.down{color:#E0567A}
 .spark-chip.flat{color:var(--sx-text-muted)}
 .spark-svg{display:block;width:100%;height:42px}
+.mt-range{width:100%;accent-color:var(--sx-blue);margin-top:6px;cursor:pointer}
+.rate-verdict{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:700;margin:2px 0 14px}
+.rate-verdict.ok{color:var(--sx-green)}
+.rate-verdict.warn{color:#F29E1A}
+.rate-dot{width:11px;height:11px;border-radius:50%;flex:0 0 auto}
+.rate-rows{display:flex;flex-direction:column;max-width:440px}
+.rate-row{display:flex;justify-content:space-between;gap:16px;font-size:14px;padding:8px 0;border-bottom:1px solid var(--sx-border)}
+.rate-row span{color:var(--sx-text-muted)}
+.rate-row strong{font-variant-numeric:tabular-nums;font-weight:700}
 .cloud-form .field,.cloud-cfg .field{max-width:360px}
 .cloud-who{font-size:14px}
 .cloud-status{display:inline-block;margin-left:8px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--sx-sat-100)}
@@ -1618,11 +1627,22 @@ function renderMortgage(){
   const latest = rows.length?num(rows[rows.length-1].balance):0;
   const reducedTotal = start-latest;
   const totalInterest = rows.reduce((s,r)=>s+num(r.interest),0);
-  const proj = loanProjection(rows);
+  const proj = mortgageProjection(rows);/* MORTGAGE ANALYSIS — amortization-based when terms are set */
   const projDate = proj.ok ? (MONTHS[new Date(proj.clearT).getMonth()]+" "+new Date(proj.clearT).getFullYear()) : "";
   const actualPts = rows.map(r=>({x:new Date(r.date+"T00:00:00").getTime(), y:num(r.balance), label:r.date}));
   const chartSeries = [{points:actualPts, color:"#078A04", fill:true, name:"Balance"}];
-  if(proj.ok){ const lp=actualPts[actualPts.length-1]; chartSeries.push({points:[{x:lp.x,y:lp.y},{x:proj.clearT,y:0}], color:"#9FB0C7", dash:true, name:"Projected"}); }
+  const schedPts = scheduledSeries(rows);/* MORTGAGE ANALYSIS */
+  if(schedPts) chartSeries.push({points:schedPts, color:"#F29E1A", dash:true, noDots:true, name:"Scheduled (no overpayments)"});
+  if(proj.ok){
+    const lp=actualPts[actualPts.length-1];
+    if(proj.source==="amort" && proj.sched){
+      const base=currentYM();
+      const projPts=[{x:lp.x,y:lp.y}].concat(proj.sched.map((bal,off)=>({x:new Date(addMonthsYM(base,off)+"-01T00:00:00").getTime(), y:bal})));
+      chartSeries.push({points:projPts, color:"#9FB0C7", dash:true, noDots:true, name:"Projected"});
+    } else {
+      chartSeries.push({points:[{x:lp.x,y:lp.y},{x:proj.clearT,y:0}], color:"#9FB0C7", dash:true, name:"Projected"});
+    }
+  }
   const body = rows.map(r=>{
     const redCls = r.reduced==null?"calc":(r.reduced>=0?"pos":"neg");
     const pctCls = r.pctChange==null?"calc":(r.pctChange>=0?"pos":"neg");
@@ -1654,11 +1674,14 @@ function renderMortgage(){
     <div class="card chart-card">
       <div class="card-h"><h2>Balance Over Time</h2><span class="hint">${rows.length} entries</span></div>
       ${proj.ok
-        ? `<div class="loan-proj">On track to clear around <strong>${projDate}</strong> — roughly ${Math.max(1,Math.round(proj.months))} month${Math.round(proj.months)===1?"":"s"} away at ≈${money(proj.monthlyRate)}/month, based on the last ${proj.windowMonths} month${proj.windowMonths===1?"":"s"} of reductions.</div>`
+        ? (proj.source==="amort"
+          ? `<div class="loan-proj">On track to clear around <strong>${projDate}</strong> — about ${Math.max(1,Math.round(proj.months))} months away, based on your recent ≈${money(proj.monthlyPay)}/month payments at ${num(mTerms().rate).toFixed(2)}%.</div>`
+          : `<div class="loan-proj">On track to clear around <strong>${projDate}</strong> — roughly ${Math.max(1,Math.round(proj.months))} month${Math.round(proj.months)===1?"":"s"} away at ≈${money(proj.monthlyRate)}/month, based on the last ${proj.windowMonths} month${proj.windowMonths===1?"":"s"} of reductions.</div>`)
         : (proj.cleared?`<div class="loan-proj">🎉 ${proj.reason}</div>`:`<div class="loan-proj muted">${proj.reason}</div>`)}
       ${lineChartSVG(chartSeries, {xLabel:t=>new Date(t).getFullYear(), yFmt:money, yAxis:fmtAxis, dateAxis:true})}
-      <div class="chart-legend"><span><span class="dot" style="background:#078A04"></span>Outstanding balance</span>${proj.ok?`<span><span class="dot" style="background:#9FB0C7"></span>Projected payoff</span>`:""}</div>
+      <div class="chart-legend"><span><span class="dot" style="background:#078A04"></span>Outstanding balance</span>${schedPts?`<span><span class="dot" style="background:#F29E1A"></span>Scheduled (no overpayments)</span>`:""}${proj.ok?`<span><span class="dot" style="background:#9FB0C7"></span>Projected payoff</span>`:""}</div>
     </div>
+    ${mortgageExtraCards(latest, rows)}
     <div class="card">
       <div class="card-h"><h2>Repayment History</h2><span class="hint">% to Interest measured from ${trackFrom} — flag a row to change it</span></div>
       <div class="tbl-wrap"><table>
@@ -1669,6 +1692,142 @@ function renderMortgage(){
     </div>`;
 }
 /* ==================== END MORTGAGE TRACKER ==================== */
+
+/* ==================== MORTGAGE ANALYSIS — rate check, overpayment, split (removable) ==================== */
+function mTerms(){ const t=state.config.mortgageTerms; return (t&&typeof t==="object")?t:{}; }
+function mTermsReady(){ const t=mTerms(); return num(t.principal)>0 && num(t.rate)>0 && num(t.payment)>0 && /^\d{4}-\d{2}$/.test(t.start||""); }
+// monthly-compounded amortization; returns months to clear, total interest, and per-month balances
+function amortize(balance, ratePct, payment, extra){
+  const r=(num(ratePct)||0)/100/12; let bal=num(balance), months=0, tot=0; const sched=[bal];
+  const pay=num(payment)+num(extra||0);
+  if(bal<=0) return {months:0,totalInterest:0,sched};
+  if(r>0 && pay<=bal*r+1e-9) return {months:Infinity,totalInterest:Infinity,sched};
+  while(bal>0.005 && months<1200){ const interest=bal*r; const p=Math.min(pay,bal+interest); bal=Math.max(0,bal-(p-interest)); tot+=interest; months++; sched.push(bal); }
+  return {months, totalInterest:tot, sched};
+}
+function monthsBetweenYM(a, b){ const x=(a||"").slice(0,7).split("-"), y=(b||"").slice(0,7).split("-"); if(x.length<2||y.length<2) return 0; return (+y[0]-+x[0])*12 + (+y[1]-+x[1]); }
+function addMonthsYM(baseYM, n){ let [y,m]=(baseYM||currentYM()).split("-").map(Number); m+=n; y+=Math.floor((m-1)/12); m=((m-1)%12+12)%12+1; return y+"-"+String(m).padStart(2,"0"); }
+// scheduled (contractual, no overpayment) balance sampled at each actual entry's date
+// recent monthly payment ≈ actual recent £/month reduction (time-based) + this month's interest,
+// so the projected curve starts at the SAME slope as your logged balance
+function recentMonthlyPayment(rows){
+  const lp=loanProjection(rows); if(!lp.ok) return null;
+  const bal=rows.length?num(rows[rows.length-1].balance):0;
+  return lp.monthlyRate + bal*(num(mTerms().rate)/100/12);
+}
+// proper amortization projection when terms exist (so it matches the scheduled curve), else fall back to the linear estimate
+function mortgageProjection(rows){
+  if(mTermsReady() && rows.length){
+    const pay=recentMonthlyPayment(rows), bal=num(rows[rows.length-1].balance);
+    if(pay>0 && bal>0){
+      const a=amortize(bal, mTerms().rate, pay, 0);
+      if(a.months!==Infinity && a.months>0)
+        return {ok:true, source:"amort", months:a.months, clearT:new Date(addMonthsYM(currentYM(),a.months)+"-01T00:00:00").getTime(), sched:a.sched, monthlyPay:pay};
+    }
+  }
+  return loanProjection(rows);
+}
+function scheduledSeries(rows){
+  if(!mTermsReady()||!rows.length) return null;
+  const t=mTerms(), a=amortize(t.principal,t.rate,t.payment,0); if(a.sched.length<2) return null;
+  const firstOff=Math.max(0, monthsBetweenYM(t.start, rows[0].date));
+  const pts=[];
+  for(let off=firstOff; off<a.sched.length; off++){
+    const ym=addMonthsYM(t.start, off);
+    pts.push({x:new Date(ym+"-01T00:00:00").getTime(), y:a.sched[off], label:monthLabel(ym)});
+  }
+  return pts.length>1?pts:null;
+}
+function mortgageRateCheck(rows){
+  if(!mTermsReady()||rows.length<2) return null;
+  let ai=rows.findIndex(r=>r.anchor); if(ai<0) ai=0;            // start from the flagged (tracking-start) row
+  if(rows.length-ai<2) return null;
+  const r=num(mTerms().rate)/100/12; let exp=0, act=0;
+  for(let i=ai+1;i<rows.length;i++){ const months=Math.max(0,monthsBetweenYM(rows[i-1].date, rows[i].date)); const avg=(num(rows[i-1].balance)+num(rows[i].balance))/2; exp+=avg*r*months; act+=num(rows[i].interest); }
+  return {expected:exp, actual:act, diff: exp? (act-exp)/exp : 0, fromDate: rows[ai].date};
+}
+// actual principal vs interest per calendar month, from the entries
+function mortgageMonthlySplit(){
+  const rows=[...state.mortgage].sort((a,b)=> a.date<b.date?-1:a.date>b.date?1:0);
+  if(rows.length<2) return [];
+  let ai=rows.findIndex(r=>r.anchor); if(ai<0) ai=0;          // start from the flagged (tracking-start) row
+  const map={}; let prev=num(rows[ai].balance);
+  for(let i=ai+1;i<rows.length;i++){ const r=rows[i], ym=(r.date||"").slice(0,7); const red=prev-num(r.balance);
+    if(!map[ym]) map[ym]={interest:0,principal:0}; map[ym].interest+=num(r.interest); map[ym].principal+=red; prev=num(r.balance); }
+  // principal = NET balance reduction (payments minus the interest capitalised that month), so it isn't double-counted
+  return Object.keys(map).sort().map(ym=>({ym, interest:map[ym].interest, principal:Math.max(0,map[ym].principal)})).filter(d=>d.interest>0.5||d.principal>0.5);
+}
+function piSplitSVG(data){
+  const W=820,H=300,pad={l:70,r:24,t:16,b:40}, n=data.length;
+  let maxY=Math.max(1,...data.map(d=>d.interest+d.principal));
+  const ystep=niceNum(niceNum(maxY,false)/5,true)||1; maxY=Math.ceil(maxY/ystep)*ystep;
+  const sy=y=>H-pad.b-(y/maxY)*(H-pad.t-pad.b);
+  const cx=i=>pad.l+(i+0.5)/n*(W-pad.l-pad.r), bw=Math.min(50,(W-pad.l-pad.r)/n*0.62);
+  let grid="",yl="";
+  for(let v=0; v<=maxY+ystep*0.001; v+=ystep){ const y=sy(v); grid+=`<line x1="${pad.l}" y1="${y}" x2="${W-pad.r}" y2="${y}" stroke="var(--sx-border)"/>`; yl+=`<text x="${pad.l-10}" y="${y+4}" text-anchor="end" font-size="11" fill="var(--sx-text-muted)">${fmtAxis(v)}</text>`; }
+  grid+=`<line x1="${pad.l}" y1="${H-pad.b}" x2="${W-pad.r}" y2="${H-pad.b}" stroke="var(--sx-text-muted)" stroke-width="1" opacity="0.6"/>`;
+  let bars="",xl="";
+  data.forEach((d,i)=>{ const x=cx(i)-bw/2, yI=sy(d.interest), hI=H-pad.b-yI, yP=sy(d.interest+d.principal), hP=yI-yP;
+    bars+=`<rect x="${x.toFixed(1)}" y="${yI.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0,hI).toFixed(1)}" fill="#E0567A" data-pt data-x="Interest · ${escapeHtml(monthLabel(d.ym))}" data-y="${money(d.interest)}"></rect>`;
+    bars+=`<rect x="${x.toFixed(1)}" y="${yP.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0,hP).toFixed(1)}" rx="3" fill="#078A04" data-pt data-x="Principal · ${escapeHtml(monthLabel(d.ym))}" data-y="${money(d.principal)}"></rect>`;
+    xl+=`<text x="${cx(i).toFixed(1)}" y="${H-pad.b+22}" text-anchor="middle" font-size="11" fill="var(--sx-text-muted)">${monthShort(d.ym)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" role="img">${grid}${yl}${bars}${xl}</svg>`;
+}
+function overpayImpact(latestBalance){
+  const t=mTerms(), op=num(state.config.mtOverpay)||0;
+  const base=amortize(latestBalance,t.rate,t.payment,0), wop=amortize(latestBalance,t.rate,t.payment,op);
+  const payoffBase = base.months===Infinity?"never at this payment":monthLabel(addMonthsYM(currentYM(), base.months));
+  const payoffWop  = wop.months===Infinity?"never":monthLabel(addMonthsYM(currentYM(), wop.months));
+  const monthsSaved=(base.months===Infinity||wop.months===Infinity)?0:Math.max(0,base.months-wop.months);
+  const intSaved=(base.months===Infinity)?0:Math.max(0,base.totalInterest-wop.totalInterest);
+  const yrs=Math.floor(monthsSaved/12), mo=monthsSaved%12;
+  const sooner = yrs>0?(yrs+" yr "+mo+" mo"):(monthsSaved+" month"+(monthsSaved===1?"":"s"));
+  const txt = op>0
+    ? `Overpaying <strong>${money(op)}/month</strong> clears your mortgage around <strong>${payoffWop}</strong> — about <strong>${sooner}</strong> sooner than the scheduled <strong>${payoffBase}</strong>, saving roughly <strong>${money(intSaved)}</strong> in interest.`
+    : `Scheduled payoff (paying only ${money(t.payment)}/month) is around <strong>${payoffBase}</strong>. Drag the slider to see how overpaying speeds it up and cuts interest.`;
+  return {op, txt};
+}
+function overpayCardHTML(latestBalance){
+  const op=num(state.config.mtOverpay)||0, imp=overpayImpact(latestBalance);
+  return `<div class="card" id="mt-overpay-card">
+    <div class="card-h"><h2>Overpayment impact</h2><span class="hint">from your current balance at ${num(mTerms().rate).toFixed(2)}%</span></div>
+    <div class="field" style="max-width:460px"><label>Extra per month: <strong id="mt-op-label">${money(op)}</strong></label>
+      <input type="range" id="mtOverpay" class="mt-range" min="0" max="1000" step="25" value="${op}"></div>
+    <p class="auto-info" id="mt-op-impact">${imp.txt}</p>
+  </div>`;
+}
+function updateOverpay(latestBalance){
+  const imp=overpayImpact(latestBalance);
+  const lab=document.getElementById("mt-op-label"); if(lab) lab.textContent=money(imp.op);
+  const t=document.getElementById("mt-op-impact"); if(t) t.innerHTML=imp.txt;
+}
+function mortgageExtraCards(latest, rows){
+  if(!mTermsReady()) return `<div class="card"><div class="card-h"><h2>Rate tracking &amp; overpayment</h2></div><p class="hint">Add your mortgage terms in <strong>Configuration → Mortgage terms</strong> (original amount, start month, rate, monthly payment) to unlock the scheduled-vs-actual comparison, a rate check, overpayment impact, and the principal/interest split.</p></div>`;
+  const rc=mortgageRateCheck(rows);
+  let rcCard="";
+  if(rc){
+    const rate=num(mTerms().rate).toFixed(2), off=Math.max(1,Math.round(Math.abs(rc.diff)*100)), close=Math.abs(rc.diff)<0.1, lower=rc.diff<0;
+    const verdict = close ? {cls:"ok", dot:"#078A04", txt:"Looks right"} : {cls:"warn", dot:"#F29E1A", txt:"These don't line up"};
+    const why = close
+      ? `Good sign — the interest you've logged matches what a ${rate}% rate should cost.`
+      : (lower
+        ? `You've logged <strong>less</strong> interest than a ${rate}% rate would charge. This usually means a <strong>gap between some entries</strong> (a month or two not recorded), or the rate/payment needs a small tweak.`
+        : `You've logged <strong>more</strong> interest than a ${rate}% rate would charge. Worth checking the rate is right, whether a fee is bundled in, or if a number was mistyped.`);
+    rcCard=`<div class="card"><div class="card-h"><h2>Rate check</h2><span class="hint">matching your ${rate}% rate since ${fmtDate(rc.fromDate)}</span></div>
+      <div class="rate-verdict ${verdict.cls}"><span class="rate-dot" style="background:${verdict.dot}"></span>${verdict.txt}${close?"":` — about <strong>${off}% ${lower?"less":"more"}</strong> than expected`}</div>
+      <div class="rate-rows">
+        <div class="rate-row"><span>Interest you've logged</span><strong>${money(rc.actual)}</strong></div>
+        <div class="rate-row"><span>What ${rate}% would charge</span><strong>${money(rc.expected)}</strong></div>
+      </div>
+      <p class="hint" style="margin:12px 0 0">${why}</p>
+    </div>`;
+  }
+  const split=mortgageMonthlySplit();
+  const splitCard = split.length? `<div class="card"><div class="card-h"><h2>Principal vs interest</h2><span class="hint">per month, from your entries</span></div>${piSplitSVG(split)}<div class="trend-legend"><span class="trend-legi"><span class="dot" style="background:#078A04"></span>Principal</span><span class="trend-legi"><span class="dot" style="background:#E0567A"></span>Interest</span></div></div>` : "";
+  return rcCard + overpayCardHTML(latest) + splitCard;
+}
+/* ==================== END MORTGAGE ANALYSIS ==================== */
 
 /* ---------- Living Status ---------- */
 function renderLiving(){
@@ -1709,6 +1868,17 @@ function renderConfig(){
       </div>
       <p class="hint" style="margin-top:8px">The weekly &amp; daily spending budget is split using the number of weeks in the <strong>current calendar month</strong> (${c.monthName} ${c.year} → ${c.weeks.toFixed(2)} weeks), taken automatically from your system date.</p>
     </div>
+    ${(()=>{ const t=mTerms(); return `<div class="card">
+      <div class="card-h"><h2>Mortgage terms</h2><span class="hint">Powers the Mortgage tab's rate check &amp; overpayment tools</span></div>
+      <div class="cfg-grid">
+        <div class="field"><label>Original loan amount</label><input class="in num money-in" inputmode="decimal" data-mterm="principal" value="${t.principal?fmtNum(t.principal):""}"></div>
+        <div class="field"><label>Start month</label><input class="in" type="month" data-mterm="start" value="${escapeHtml(t.start||"")}"></div>
+        <div class="field"><label>Annual interest rate (%)</label><input class="in num" inputmode="decimal" data-mterm="rate" value="${t.rate!=null&&t.rate!==""?t.rate:""}"></div>
+        <div class="field"><label>Contractual monthly payment</label><input class="in num money-in" inputmode="decimal" data-mterm="payment" value="${t.payment?fmtNum(t.payment):""}"></div>
+        <div class="field"><label>Fixed rate ends (optional)</label><input class="in" type="month" data-mterm="fixEnd" value="${escapeHtml(t.fixEnd||"")}"></div>
+      </div>
+      <p class="hint" style="margin-top:8px">Interest is modelled monthly (balance × rate ÷ 12). Enter your real contractual payment; overpayments are whatever you actually pay on top.</p>
+    </div>`; })()}
     <div class="card">
       <div class="card-h"><h2>Data</h2><span class="hint">Stored only in this browser via localStorage</span></div>
       <div style="display:flex;gap:12px;flex-wrap:wrap">
@@ -1798,7 +1968,7 @@ function lineChartSVG(series, opts){
       g+=`<path d="${area}" fill="url(#${gid})"/>`;
     }
     g+=`<path class="lc-line" d="${line}" fill="none" stroke="${color}" stroke-width="2.5" stroke-linejoin="round" ${s.dash?'stroke-dasharray="6 5"':''}/>`;
-    g+=pts.map(p=>{
+    g+=s.noDots?"":pts.map(p=>{
       const cx=sx(p.x).toFixed(1), cy=sy(p.y).toFixed(1);
       const xlab=escapeHtml(String(p.label!=null?p.label:(opts.xLabel?opts.xLabel(p.x):p.x)));
       const yval=escapeHtml(String(p.tip!=null?p.tip:(opts.yFmt?opts.yFmt(p.y):p.y)));
@@ -2158,6 +2328,15 @@ document.querySelector(".content").addEventListener("input", e=>{
     if(t.dataset.cfg==="personalAllowance") v=parseNum(t.value);
     state.config[t.dataset.cfg]=v;
     save();
+  }
+  if(t.dataset.mterm){/* MORTGAGE terms */
+    const tm=state.config.mortgageTerms||(state.config.mortgageTerms={}); const f=t.dataset.mterm;
+    tm[f] = (f==="rate")?(parseFloat(t.value)||0) : (f==="start"||f==="fixEnd")?t.value : parseNum(t.value);
+    save();
+  }
+  if(t.id==="mtOverpay"){/* MORTGAGE overpayment slider */
+    state.config.mtOverpay=num(t.value); persist();
+    const rows=mortgageComputed(); updateOverpay(rows.length?num(rows[rows.length-1].balance):0);
   }
   if(t.dataset.bankname){/* ALLOC */
     const b=state.banks.find(x=>x.id===t.dataset.bankname);
