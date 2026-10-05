@@ -501,7 +501,6 @@ td.calc{color:var(--sx-text-muted);font-variant-numeric:tabular-nums;font-weight
     <main class="content">
       <div id="printHead" class="print-only"></div>
       <section class="view active" data-view="accounting" id="view-accounting"></section>
-      <section class="view" data-view="automation" id="view-automation"></section><!-- AUTOMATION -->
       <section class="view" data-view="salary" id="view-salary"></section>
       <section class="view" data-view="mortgage" id="view-mortgage"></section><!-- MORTGAGE -->
       <section class="view" data-view="loan" id="view-loan"></section>
@@ -519,7 +518,6 @@ const LEGACY_KEY = "stonex_finance_v2"; // migrate older saved data forward
 
 const ICONS = {
   accounting:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>',
-  automation:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg>',/* AUTOMATION */
   salary:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M14 7h7v7"/></svg>',
   loan:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"><path d="M12 4 2 9l10 5 10-5-10-5z"/><path d="M6 11.5V16c0 1.3 2.7 2.5 6 2.5s6-1.2 6-2.5v-4.5"/><path d="M22 9v5"/></svg>',
   mortgage:'<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 10l9-6 9 6"/><path d="M5 10v9M12 10v9M19 10v9"/><path d="M2 21h20"/></svg>',/* MORTGAGE */
@@ -533,7 +531,6 @@ const FLAG = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke
 
 const TABS = [
   {key:"accounting", nav:"Accounting", crumb:"Dashboard", title:"Monthly Accounting"},
-  {key:"automation", nav:"Tax Calculator", crumb:"Calculator", title:"Tax Calculator"},/* AUTOMATION */
   {key:"salary", nav:"Salary Tracker", crumb:"History", title:"Salary Tracker"},
   {key:"mortgage", nav:"Mortgage", crumb:"History", title:"Mortgage"},/* MORTGAGE */
   {key:"loan", nav:"Student Loan", crumb:"History", title:"Student Loan"},
@@ -2050,197 +2047,9 @@ function rerenderCurrent(){
   const v = document.querySelector(".view.active").dataset.view;
   RENDER[v]();
 }
-/* ==================== AUTOMATION MODULE (removable) ==================== */
-const AUTO_DEFAULTS={region:"ruk",plan2:true,pensionRate:0.034,pensionMethod:"salsac",pensionBase:"full",grossOverride:""};
-// Seed tax year — 2026/27, confirmed against HMRC / gov.scot. Note: upTo:null = "and above".
-function defaultTaxYears(){ return [{
-  label:"2026/27", pa:12570, paTaperStart:100000,
-  ruk:[{upTo:37700,rate:0.20},{upTo:125140,rate:0.40},{upTo:null,rate:0.45}],
-  scotland:[{upTo:3967,rate:0.19},{upTo:16956,rate:0.20},{upTo:31092,rate:0.21},{upTo:62430,rate:0.42},{upTo:112570,rate:0.45},{upTo:null,rate:0.48}],
-  niPT:12570, niUEL:50270, niMain:0.08, niUpper:0.02, slThreshold:29385, slRate:0.09, qeLower:6240, qeUpper:50270
-}]; }
-function ensureAuto(s){
-  if(s&&s.config){
-    if(!s.config.auto) s.config.auto=Object.assign({},AUTO_DEFAULTS);
-    const a=s.config.auto;
-    if(!a.taxYears||!a.taxYears.length) a.taxYears=defaultTaxYears();
-    if(!a.activeYear||!a.taxYears.some(y=>y.label===a.activeYear)) a.activeYear=a.taxYears[a.taxYears.length-1].label;
-  }
-  return s;
-}
-function activeYear(){ const a=state.config.auto; return a.taxYears.find(y=>y.label===a.activeYear)||a.taxYears[a.taxYears.length-1]; }
-// order finite bands ascending, keep the open-ended ("and above") band last
-function orderBands(bands){
-  const fin=bands.filter(b=>b.upTo!=null&&isFinite(b.upTo)).slice().sort((a,b)=>a.upTo-b.upTo);
-  const open=bands.find(b=>b.upTo==null||!isFinite(b.upTo));
-  return open?[...fin,open]:fin;
-}
-function bandedTax(taxable,bands){
-  let tax=0,lo=0;
-  for(const b of orderBands(bands)){ const cap=(b.upTo==null||!isFinite(b.upTo))?Infinity:b.upTo; if(taxable<=lo) break; tax+=(Math.min(taxable,cap)-lo)*num(b.rate); lo=cap; }
-  return tax;
-}
-function estimateDeductions(o,ty){
-  const gross=Math.max(0,num(o.gross)), rate=Math.max(0,num(o.pensionRate));
-  const peBase=o.pensionBase==="qualifying"?Math.max(0,Math.min(gross,ty.qeUpper)-ty.qeLower):gross;
-  const pension=o.pensionMethod==="none"?0:rate*peBase;
-  const salsac=o.pensionMethod==="salsac";
-  const incomeBase=(salsac||o.pensionMethod==="netpay")?gross-pension:gross; // taxable pay
-  const niBase=salsac?gross-pension:gross;
-  const slBase=salsac?gross-pension:gross;
-  const ts=num(ty.paTaperStart)||100000;
-  let pa=num(ty.pa); if(incomeBase>ts) pa=Math.max(0,num(ty.pa)-(incomeBase-ts)/2);
-  const taxable=Math.max(0,incomeBase-pa);
-  const tax=bandedTax(taxable, o.region==="scotland"?ty.scotland:ty.ruk);
-  const ni=num(ty.niMain)*Math.max(0,Math.min(niBase,ty.niUEL)-ty.niPT)+num(ty.niUpper)*Math.max(0,niBase-ty.niUEL);
-  const sl=o.plan2?num(ty.slRate)*Math.max(0,slBase-ty.slThreshold):0;
-  const totalDed=tax+ni+sl+pension, net=gross-totalDed;
-  return {gross,pension,tax,ni,sl,totalDed,net};
-}
-function autoIncomeTotal(){ return state.income.reduce((s,i)=>s+num(i.annual),0); }
-function autoOpts(){ const a=state.config.auto; const gross=(a.grossOverride!==""&&a.grossOverride!=null)?num(a.grossOverride):autoIncomeTotal();
-  return {gross,pensionRate:a.pensionRate,pensionMethod:a.pensionMethod,pensionBase:a.pensionBase,region:a.region,plan2:a.plan2}; }
-const AUTO_SEG=[["Income Tax","tax","#1383F4"],["NI","ni","#F29E1A"],["Student Loan","sl","#9B59B6"],["Pension","pension","#5C7495"],["Take-home","net","#078A04"]];
-function autoBarHTML(r){ const tot=r.gross||1;
-  return AUTO_SEG.map(s=>[s[0],Math.max(0,r[s[1]]),s[2]]).filter(s=>s[1]>0)
-    .map(s=>`<span style="width:${(s[1]/tot*100).toFixed(2)}%;background:${s[2]}" title="${s[0]}"></span>`).join(""); }
-function patchAuto(){
-  const r=estimateDeductions(autoOpts(),activeYear()), set=(id,v)=>{const e=document.getElementById(id); if(e) e.textContent=v;};
-  set("ar-tax",money(r.tax/12)); set("ar-taxy",money(r.tax)+"/yr");
-  set("ar-ni",money(r.ni/12));  set("ar-niy",money(r.ni)+"/yr");
-  set("ar-sl",money(r.sl/12));  set("ar-sly",money(r.sl)+"/yr");
-  set("ar-pen",money(r.pension/12)); set("ar-peny",money(r.pension)+"/yr");
-  set("ar-total",money(r.totalDed/12));
-  set("ar-net",money(r.net/12)); set("ar-nety",money(r.net)+"/yr");
-  set("ar-rate", r.gross?("Effective deduction rate "+pct(r.totalDed/r.gross)+" · take-home "+pct(r.net/r.gross)):"—");
-  const bar=document.getElementById("ar-bar"); if(bar) bar.innerHTML=autoBarHTML(r);
-}
-let autoRulesOpen=false;
-function bandRowsHTML(region,bands){
-  return orderBands(bands).map((b,i)=>{
-    const open=(b.upTo==null||!isFinite(b.upTo));
-    return `<div class="band-row">
-      ${open?`<span class="band-cap">Above top threshold</span>`
-            :`<input class="in num money-in" data-band="${region}" data-bi="${i}" data-bfield="upTo" value="${fmtNum(b.upTo)}">`}
-      <input class="in num pct-in" data-band="${region}" data-bi="${i}" data-bfield="rate" value="${fmtPct2(b.rate)}">
-      ${bands.length>1?`<button class="iconbtn" data-banddel="${region}" data-bi="${i}" title="Remove band">${TRASH}</button>`:`<span style="width:32px"></span>`}
-    </div>`;
-  }).join("") + `<button class="btn ghost sm" data-bandadd="${region}">+ Add band</button>`;
-}
-function rulesEditorHTML(ty){
-  const mf=(lbl,field)=>`<div class="field"><label>${lbl}</label><input class="in num money-in" data-ty="${field}" value="${fmtNum(ty[field])}"></div>`;
-  const pf=(lbl,field)=>`<div class="field"><label>${lbl}</label><input class="in num pct-in" data-ty="${field}" value="${fmtPct2(ty[field])}"></div>`;
-  return `
-  <div class="card" id="ai-rulescard">
-    <div class="card-h"><h2>Tax-year rules — ${escapeHtml(ty.label)}</h2><button class="btn ghost sm" id="ai-rules-done">Done</button></div>
-    <p class="auto-info" style="margin-bottom:14px">Band thresholds are <strong>taxable</strong> income (after the personal allowance). The last band applies to everything above the final threshold. When a new tax year is published, add a year and update only what changed.</p>
-    <div class="field"><label>Tax year label</label><input class="in" id="ty-label" value="${escapeHtml(ty.label)}"></div>
-    <div class="ty-grid">${mf("Personal allowance","pa")}${mf("Allowance taper starts at","paTaperStart")}</div>
-    <h3 class="ty-head">Income tax bands — England / Wales / NI</h3>
-    <div class="band-head"><span>Up to (taxable)</span><span>Rate</span><span></span></div>
-    ${bandRowsHTML("ruk",ty.ruk)}
-    <h3 class="ty-head">Income tax bands — Scotland</h3>
-    <div class="band-head"><span>Up to (taxable)</span><span>Rate</span><span></span></div>
-    ${bandRowsHTML("scotland",ty.scotland)}
-    <h3 class="ty-head">National Insurance (employee, Class 1)</h3>
-    <div class="ty-grid">${mf("Primary threshold","niPT")}${mf("Upper earnings limit","niUEL")}${pf("Main rate","niMain")}${pf("Rate above UEL","niUpper")}</div>
-    <h3 class="ty-head">Student loan — Plan 2</h3>
-    <div class="ty-grid">${mf("Repayment threshold","slThreshold")}${pf("Repayment rate","slRate")}</div>
-    <h3 class="ty-head">Pension — qualifying earnings band</h3>
-    <div class="ty-grid">${mf("Lower limit","qeLower")}${mf("Upper limit","qeUpper")}</div>
-    <button class="btn ghost sm" id="ai-restore" style="margin-top:14px">Restore official 2026/27 values to this year</button>
-  </div>`;
-}
-function renderAutomation(){
-  ensureAuto(state);
-  const el=document.getElementById("view-automation"), a=state.config.auto, inc=autoIncomeTotal(), ty=activeYear();
-  const gross=(a.grossOverride!==""&&a.grossOverride!=null)?num(a.grossOverride):inc;
-  const r=estimateDeductions(autoOpts(),ty);
-  const opt=(v,cur,label)=>`<option value="${v}" ${cur===v?"selected":""}>${label}</option>`;
-  const yearOpts=a.taxYears.map(y=>opt(y.label,a.activeYear,y.label)).join("");
-  el.innerHTML=`
-  <div class="card">
-    <div class="card-h"><h2>Deduction estimator</h2><span class="hint">${escapeHtml(ty.label)} tax year</span></div>
-    <p class="auto-info">Estimates Income Tax, National Insurance, Plan 2 student loan and pension from your gross salary using the selected tax year's thresholds, then optionally fills in your Accounting deductions. Estimates for a steady salary — not financial or tax advice.</p>
-    <div class="auto-yearbar">
-      <label>Tax year</label>
-      <select class="in" id="ai-year" style="max-width:150px">${yearOpts}</select>
-      <button class="btn sm" id="ai-addyear">+ Add year</button>
-      ${a.taxYears.length>1?`<button class="btn ghost sm" id="ai-delyear">Delete</button>`:""}
-      <button class="btn ghost sm" id="ai-rules">${autoRulesOpen?"Hide rules":"Edit rules"}</button>
-    </div>
-  </div>
-  ${autoRulesOpen?rulesEditorHTML(ty):""}
-  <div class="cols2">
-    <div class="card">
-      <div class="card-h"><h2>Your details</h2></div>
-      <div class="field"><label>Gross annual salary</label>
-        <input class="in num money-in" id="ai-gross" inputmode="decimal" value="${fmtNum(gross)}">
-        <button class="auto-link" id="ai-useincome">Use my income total (${money(inc)})</button>
-      </div>
-      <div class="field"><label>Tax region</label>
-        <select class="in" id="ai-region">${opt("ruk",a.region,"England / Wales / N. Ireland")}${opt("scotland",a.region,"Scotland")}</select>
-      </div>
-      <div class="field"><label>Student loan</label>
-        <label class="switch"><input type="checkbox" id="ai-plan2" ${a.plan2?"checked":""}><span class="switch-track"><span class="switch-thumb"></span></span><span class="switch-label">Plan 2 repayments</span></label>
-      </div>
-      <div class="field"><label>Pension contribution rate</label>
-        <input class="in num pct-in" id="ai-prate" inputmode="decimal" value="${fmtPct2(a.pensionRate)}">
-      </div>
-      <div class="field"><label>Pension method</label>
-        <select class="in" id="ai-pmethod">${opt("salsac",a.pensionMethod,"Salary sacrifice")}${opt("netpay",a.pensionMethod,"Net pay arrangement")}${opt("ras",a.pensionMethod,"Relief at source")}${opt("none",a.pensionMethod,"No pension")}</select>
-      </div>
-      <div class="field"><label>Pension based on</label>
-        <select class="in" id="ai-pbase">${opt("full",a.pensionBase,"Full salary")}${opt("qualifying",a.pensionBase,"Qualifying earnings band")}</select>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-h"><h2>Estimated deductions</h2><span class="hint">per month</span></div>
-      <div class="ded-row"><span class="lab">Income Tax</span><span><span class="amt" id="ar-tax">${money(r.tax/12)}</span><span class="sub" id="ar-taxy">${money(r.tax)}/yr</span></span></div>
-      <div class="ded-row"><span class="lab">National Insurance</span><span><span class="amt" id="ar-ni">${money(r.ni/12)}</span><span class="sub" id="ar-niy">${money(r.ni)}/yr</span></span></div>
-      <div class="ded-row"><span class="lab">Student Loan (Plan 2)</span><span><span class="amt" id="ar-sl">${money(r.sl/12)}</span><span class="sub" id="ar-sly">${money(r.sl)}/yr</span></span></div>
-      <div class="ded-row"><span class="lab">Pension</span><span><span class="amt" id="ar-pen">${money(r.pension/12)}</span><span class="sub" id="ar-peny">${money(r.pension)}/yr</span></span></div>
-      <div class="line-total"><span>Total deductions</span><span class="v" id="ar-total">${money(r.totalDed/12)}</span></div>
-      <div class="ded-row" style="border:0"><span class="lab">Take-home pay</span><span><span class="amt" id="ar-net" style="color:var(--sx-green)">${money(r.net/12)}</span><span class="sub" id="ar-nety">${money(r.net)}/yr</span></span></div>
-      <div class="auto-bar" id="ar-bar">${autoBarHTML(r)}</div>
-      <div class="auto-legend">${AUTO_SEG.map(s=>`<span><i style="background:${s[2]}"></i>${s[0]}</span>`).join("")}</div>
-      <p class="auto-info" id="ar-rate" style="margin-top:12px">${r.gross?("Effective deduction rate "+pct(r.totalDed/r.gross)+" · take-home "+pct(r.net/r.gross)):"—"}</p>
-      <button class="btn primary" id="auto-apply" style="margin-top:14px;width:100%">Apply to Accounting deductions</button>
-    </div>
-  </div>`;
-}
-function applyAuto(){
-  ensureAuto(state);
-  const a=state.config.auto, r=estimateDeductions(autoOpts(),activeYear()), round2=x=>Math.round(x*100)/100;
-  if(!confirm("Replace your Accounting Deductions with these estimated figures? You can still edit them by hand afterwards.")) return;
-  const lines=[{label:"Income Tax",amount:round2(r.tax/12)},{label:"National Insurance",amount:round2(r.ni/12)}];
-  if(a.plan2) lines.push({label:"Student Loan",amount:round2(r.sl/12)});
-  if(a.pensionMethod!=="none") lines.push({label:"Pension",amount:round2(r.pension/12)});
-  state.deductions=lines.map(l=>({id:uid(),label:l.label,amount:l.amount}));
-  save(); toast("Deductions updated from estimate");
-}
-function autoAddYear(){
-  const a=state.config.auto;
-  // suggest the next tax year label, e.g. 2026/27 -> 2027/28
-  let suggest=""; const m=/^(\d{4})\/(\d{2})$/.exec(a.activeYear);
-  if(m){ const y=+m[1]+1; suggest=y+"/"+String((y+1)%100).padStart(2,"0"); }
-  const label=(prompt("New tax year label:", suggest)||"").trim();
-  if(!label) return;
-  if(a.taxYears.some(y=>y.label===label)){ toast("That tax year already exists"); return; }
-  const clone=JSON.parse(JSON.stringify(activeYear())); clone.label=label;
-  a.taxYears.push(clone); a.activeYear=label; autoRulesOpen=true;
-  save(); renderAutomation();
-}
-function autoDeleteYear(){
-  const a=state.config.auto; if(a.taxYears.length<2) return;
-  if(!confirm('Delete tax year "'+a.activeYear+'"?')) return;
-  a.taxYears=a.taxYears.filter(y=>y.label!==a.activeYear);
-  a.activeYear=a.taxYears[a.taxYears.length-1].label;
-  save(); renderAutomation();
-}
-/* ==================== END AUTOMATION MODULE ==================== */
 
-const RENDER = {accounting:renderAccounting, automation:renderAutomation, salary:renderSalary, mortgage:renderMortgage, loan:renderLoan, living:renderLiving, config:renderConfig};
+
+const RENDER = {accounting:renderAccounting, salary:renderSalary, mortgage:renderMortgage, loan:renderLoan, living:renderLiving, config:renderConfig};
 
 function switchTab(key){
   cancelViewRefresh();
@@ -2262,42 +2071,7 @@ document.getElementById("nav").addEventListener("click",e=>{
   const b=e.target.closest("button[data-tab]"); if(b) switchTab(b.dataset.tab);
 });
 
-/* ==================== AUTOMATION MODULE listeners (removable) ==================== */
-(function(){
-  const va=document.getElementById("view-automation"); if(!va) return;
-  ensureAuto(state);
-  const pctField=t=>t.classList&&t.classList.contains("pct-in");
-  va.addEventListener("input",e=>{ const t=e.target, a=state.config.auto, ty=activeYear();
-    if(t.id==="ai-gross"){ const n=parseNum(t.value); a.grossOverride=(n===""?"":n); save(); patchAuto(); }
-    else if(t.id==="ai-prate"){ const d=parsePctInput(t.value); a.pensionRate=(d===""?0:d); save(); patchAuto(); }
-    else if(t.dataset.ty){ const v=pctField(t)?parsePctInput(t.value):parseNum(t.value); ty[t.dataset.ty]=(v===""?0:v); save(); patchAuto(); }
-    else if(t.dataset.band){ const bands=ty[t.dataset.band], b=bands[+t.dataset.bi]; if(b){ const v=pctField(t)?parsePctInput(t.value):parseNum(t.value); b[t.dataset.bfield]=(v===""?0:v); save(); patchAuto(); } }
-  });
-  va.addEventListener("change",e=>{ const t=e.target, a=state.config.auto;
-    if(t.id==="ai-region"){ a.region=t.value; save(); patchAuto(); }
-    else if(t.id==="ai-plan2"){ a.plan2=t.checked; save(); patchAuto(); }
-    else if(t.id==="ai-pmethod"){ a.pensionMethod=t.value; save(); patchAuto(); }
-    else if(t.id==="ai-pbase"){ a.pensionBase=t.value; save(); patchAuto(); }
-    else if(t.id==="ai-year"){ a.activeYear=t.value; save(); renderAutomation(); }
-    else if(t.id==="ty-label"){ const ty=activeYear(), nl=t.value.trim(); if(nl && !a.taxYears.some(y=>y.label===nl && y!==ty)){ a.activeYear=(a.activeYear===ty.label?nl:a.activeYear); ty.label=nl; save(); renderAutomation(); } }
-  });
-  va.addEventListener("focusout",e=>{ const t=e.target, a=state.config.auto;
-    if(t.id==="ai-gross" && parseNum(t.value)===""){ a.grossOverride=""; t.value=fmtNum(autoIncomeTotal()); save(); patchAuto(); }
-  });
-  va.addEventListener("click",e=>{ const a=state.config.auto, ty=activeYear();
-    const t=e.target, addB=t.closest&&t.closest("[data-bandadd]"), delB=t.closest&&t.closest("[data-banddel]");
-    if(t.id==="ai-useincome"){ a.grossOverride=""; save(); renderAutomation(); }
-    else if(t.id==="auto-apply"){ applyAuto(); }
-    else if(t.id==="ai-addyear"){ autoAddYear(); }
-    else if(t.id==="ai-delyear"){ autoDeleteYear(); }
-    else if(t.id==="ai-rules"){ autoRulesOpen=!autoRulesOpen; renderAutomation(); }
-    else if(t.id==="ai-rules-done"){ autoRulesOpen=false; renderAutomation(); }
-    else if(t.id==="ai-restore"){ if(confirm('Restore the official 2026/27 figures into "'+ty.label+'"? Your other settings stay.')){ const off=defaultTaxYears()[0], lbl=ty.label; Object.assign(ty, off, {label:lbl}); save(); renderAutomation(); } }
-    else if(addB){ const reg=addB.dataset.bandadd, bands=ty[reg], openIdx=bands.findIndex(b=>b.upTo==null||!isFinite(b.upTo)); const ins={upTo:0,rate:0}; if(openIdx>=0) bands.splice(openIdx,0,ins); else bands.push(ins); save(); renderAutomation(); }
-    else if(delB){ const reg=delB.dataset.banddel, bands=ty[reg]; if(bands.length>1){ bands.splice(+delB.dataset.bi,1); save(); renderAutomation(); } }
-  });
-})();
-/* ==================== END AUTOMATION MODULE listeners ==================== */
+
 
 // delegated input handling for inline edits
 document.querySelector(".content").addEventListener("input", e=>{
@@ -2675,14 +2449,13 @@ document.getElementById("importFile").addEventListener("change",e=>{
   r.onload=()=>{ try{
     const s=JSON.parse(r.result);
     if(!s||!s.config) throw 0;
-    state=useState(s); ensureAuto(state); if(!Array.isArray(state.mortgage)) state.mortgage=[];/* MORTGAGE */ if(!Array.isArray(state.banks)) state.banks=[];/* ALLOC */ openExistingNotes(); save(); rerenderCurrent(); toast("Backup imported");
+    state=useState(s); if(!Array.isArray(state.mortgage)) state.mortgage=[];/* MORTGAGE */ if(!Array.isArray(state.banks)) state.banks=[];/* ALLOC */ openExistingNotes(); save(); rerenderCurrent(); toast("Backup imported");
   }catch(err){ toast("Invalid backup file"); } };
   r.readAsText(file);
 });
 function resetData(){
   if(confirm("Reset everything to the simple sample data? Your current data will be replaced (export a backup first if you want to keep it).")){
     state=useState(defaultState());
-    ensureAuto(state);
     expanded.clear(); notesOpen.clear();
     state.expenses.concat(state.savings).forEach(it=>{ if(it.children&&it.children.length) expanded.add(it.id); });
     openExistingNotes();
@@ -2810,7 +2583,6 @@ async function cloudAdopt(){
 }
 function applyCloudState(obj){
   state=useState(obj);
-  ensureAuto(state);
   if(!Array.isArray(state.mortgage)) state.mortgage=[];
   if(!Array.isArray(state.banks)) state.banks=[];
   const created=gotoCurrentMonth();/* MONTH: land on current month */
