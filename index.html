@@ -1077,9 +1077,6 @@ function renderAccounting(){
     </div>
     ${allocationCardHTML()}
     ${trendsCardHTML()}`;
-  // responsive single column
-  const cols = el.querySelector(".cols");
-  if(window.innerWidth<760) cols.style.gridTemplateColumns="1fr";
   renderDonuts();
 }
 function toggleAllBtn(section){
